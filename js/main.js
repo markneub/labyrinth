@@ -1,31 +1,39 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { generateLevel, wallSegments } from './maze.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { generateLevel, WALL_LEN } from './maze.js';
 import { makeBoardTexture, makeWoodTexture } from './textures.js';
 import { TiltInput } from './input.js';
 import { Sfx } from './audio.js';
 
-// --- Dimensions (1 unit ≈ 2.5 cm) ---
-const CELL = 2.4;
+// --- Dimensions (1 unit ≈ 1.4 cm) ---
+const CELL = 1.3;
 const WALL_T = 0.24;
-const WALL_H = 0.55;
+const WALL_H = 0.5;
 const BALL_R = 0.3;
 const HOLE_R = 0.42;
-const FRAME_T = 0.8;
-const FRAME_H = 1.0;
 const BOARD_T = 0.3;
-const TRAY_DEPTH = 2.4;
+const RIM_T = 0.3;            // the board's own raised border
+const RIM_H = 0.5;
+const GAP = 0.12;
+const GIMBAL_T = 0.45;        // inner frame that tilts on one axis
+const BOX_T = 0.55;           // outer box
+const BOX_TOP = 0.9;
+const BOX_BOTTOM = -2.8;
+const BOX_FLOOR = -2.5;       // inside of the box, where fallen balls land
 
 // --- Physics ---
-const GRAVITY = 200;
+const GRAVITY = 170;
 const ROLL = 5 / 7;           // solid sphere rolling without slipping
 const MAX_TILT = THREE.MathUtils.degToRad(18);
 const DAMPING = 0.35;         // air + rolling losses, per second
 const ROLL_RESIST = 1.2;      // constant deceleration, keeps the ball from creeping
 const RESTITUTION = 0.38;
 const HOLE_PULL = 70;
-const MAX_SPEED = 26;
+const MAX_SPEED = 22;
 const SUBSTEPS = 6;
+
+const CAMERA_ANGLE = THREE.MathUtils.degToRad(24);
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -46,37 +54,59 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.95;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x15100c);
+scene.background = new THREE.Color(0xf2ede6);
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-scene.environmentIntensity = 0.55;
+scene.environmentIntensity = 0.6;
 
-const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 300);
+const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 400);
 
-scene.add(new THREE.HemisphereLight(0xfff4e0, 0x2a1a10, 0.7));
-const sun = new THREE.DirectionalLight(0xfff1d6, 2.4);
-sun.position.set(-8, 30, 12);
+scene.add(new THREE.HemisphereLight(0xffffff, 0xd8c4a4, 0.8));
+const sun = new THREE.DirectionalLight(0xfff6e8, 2.0);
+sun.position.set(-12, 22, 10);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.bias = -0.0004;
 sun.shadow.normalBias = 0.02;
 scene.add(sun, sun.target);
 
-const pivot = new THREE.Group();   // tilts with the input for visual feedback
-scene.add(pivot);
+// Product-shot floor the box stands on.
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(400, 400),
+  new THREE.MeshStandardMaterial({ color: 0xf2ede6, roughness: 1 }),
+);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = BOX_BOTTOM;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// The board tilts inside the box like the real thing: the gimbal frame on
+// one axis, the board within it on the other.
+const gimbal = new THREE.Group();
+const boardPivot = new THREE.Group();
+gimbal.add(boardPivot);
+scene.add(gimbal);
 
 const anisotropy = renderer.capabilities.getMaxAnisotropy();
-const wallTex = makeWoodTexture(512, 64, { light: [214, 170, 118], dark: [150, 100, 58], seed: 7, scale: 1.2 }, anisotropy);
-const frameTex = makeWoodTexture(1024, 128, { light: [122, 74, 42], dark: [60, 33, 18], seed: 3, scale: 1.6 }, anisotropy);
+const pine = (seed, scale) =>
+  makeWoodTexture(512, 96, { light: [230, 196, 142], dark: [204, 162, 104], seed, scale }, anisotropy);
+const blockTex = pine(7, 1.0);
+const boxTex = pine(3, 1.6);
+const blockMats = [1, 0.97, 0.94, 1.03].map((k) => new THREE.MeshStandardMaterial({
+  map: blockTex,
+  color: new THREE.Color(k, k * 0.99, k * 0.97),
+  roughness: 0.7,
+}));
 
 const ball = new THREE.Mesh(
   new THREE.SphereGeometry(BALL_R, 48, 32),
-  new THREE.MeshStandardMaterial({ color: 0xe8e8ec, metalness: 1, roughness: 0.14, envMapIntensity: 1.6 }),
+  new THREE.MeshStandardMaterial({ color: 0xe8e8ec, metalness: 1, roughness: 0.12, envMapIntensity: 1.7 }),
 );
 ball.castShadow = true;
-pivot.add(ball);
+boardPivot.add(ball);
 
 const input = new TiltInput(canvas, MAX_TILT);
 const sfx = new Sfx();
@@ -84,7 +114,8 @@ const sfx = new Sfx();
 const game = {
   level: store.get('labyrinth.level', 1),
   layout: null,
-  group: null,
+  groups: [],
+  knobs: null,
   state: 'menu',      // menu | play | fall | won
   p: { x: 0, z: 0 },
   v: { x: 0, z: 0 },
@@ -97,21 +128,36 @@ const game = {
 };
 
 // --- Level construction ---
-function block(group, b, y0, y1, tex) {
+function slab(parent, b, y0, y1, material, radius = 0.05) {
   const sx = b.maxx - b.minx, sz = b.maxz - b.minz;
   const alongZ = sz > sx;
-  const len = Math.max(sx, sz);
-  const map = tex.clone();
-  map.repeat.set(len / 6, 1);
-  map.needsUpdate = true;
   const mesh = new THREE.Mesh(
-    new THREE.BoxGeometry(len, y1 - y0, Math.min(sx, sz)),
-    new THREE.MeshStandardMaterial({ map, roughness: 0.6 }),
+    new RoundedBoxGeometry(Math.max(sx, sz), y1 - y0, Math.min(sx, sz), 2, radius),
+    material,
   );
   if (alongZ) mesh.rotation.y = Math.PI / 2;
   mesh.position.set((b.minx + b.maxx) / 2, (y0 + y1) / 2, (b.minz + b.maxz) / 2);
   mesh.castShadow = mesh.receiveShadow = true;
-  group.add(mesh);
+  parent.add(mesh);
+  return mesh;
+}
+
+/** Four slabs framing a rectangle; the front and back ones own the corners. */
+function ring(half, thick) {
+  const { x, z } = half;
+  return [
+    { minx: -x - thick, maxx: x + thick, minz: -z - thick, maxz: -z },
+    { minx: -x - thick, maxx: x + thick, minz: z, maxz: z + thick },
+    { minx: -x - thick, maxx: -x, minz: -z, maxz: z },
+    { minx: x, maxx: x + thick, minz: -z, maxz: z },
+  ];
+}
+
+function boxMaterial(length) {
+  const map = boxTex.clone();
+  map.repeat.set(length / 10, 1);
+  map.needsUpdate = true;
+  return new THREE.MeshStandardMaterial({ map, roughness: 0.65 });
 }
 
 function disposeGroup(group) {
@@ -119,38 +165,40 @@ function disposeGroup(group) {
     if (!o.isMesh) return;
     o.geometry.dispose();
     for (const m of [].concat(o.material)) {
+      if (blockMats.includes(m)) continue;
       m.map?.dispose();
       m.dispose();
     }
   });
+  group.removeFromParent();
+}
+
+function makeKnob() {
+  const knob = new THREE.Group();
+  const mat = boxMaterial(2);
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.4, 20), mat);
+  shaft.rotation.x = Math.PI / 2;
+  shaft.position.z = 0.2;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.42, 32, 20), mat);
+  head.scale.z = 0.8;
+  head.position.z = 0.62;
+  for (const m of [shaft, head]) { m.castShadow = m.receiveShadow = true; knob.add(m); }
+  return knob;
 }
 
 function buildLevel(level) {
-  if (game.group) {
-    disposeGroup(game.group);
-    pivot.remove(game.group);
-  }
+  for (const g of game.groups) disposeGroup(g);
   const maze = generateLevel(level);
   const W = maze.cols * CELL, H = maze.rows * CELL;
-  const at = (c, r, ox = 0, oy = 0) => ({
-    x: -W / 2 + (c + 0.5 + ox) * CELL,
-    z: -H / 2 + (r + 0.5 + oy) * CELL,
-  });
+  const toW = (p) => ({ x: -W / 2 + (p.x + 0.5) * CELL, z: -H / 2 + (p.y + 0.5) * CELL });
 
-  const holes = maze.holes.map((h) => {
-    const pos = at(h.c, h.r, h.ox, h.oy);
-    // Number sits beside the hole, perpendicular to its offset from the line.
-    const len = Math.hypot(h.ox, h.oy) || 1;
-    const k = (HOLE_R + 0.24) / len;
-    return { ...pos, num: h.num, goal: false, label: { x: pos.x - h.oy * k, z: pos.z + h.ox * k } };
-  });
-  const goal = { ...at(maze.goal.c, maze.goal.r), goal: true };
-  const start = at(0, 0);
-  const path = maze.path.map(([c, r]) => at(c, r));
+  const holes = maze.holes.map((h) => ({ ...toW(h), num: h.num, label: h.label && toW(h.label), goal: false }));
+  const goal = { ...toW(maze.goal), goal: true };
+  const start = toW(maze.start);
+  const path = maze.path.map(([x, y]) => toW({ x, y }));
 
-  const group = new THREE.Group();
-
-  // Board with real cut-outs so the ball can drop through.
+  // ---- Board (tilts on both axes) ----
+  const board = new THREE.Group();
   const shape = new THREE.Shape();
   shape.moveTo(-W / 2, -H / 2);
   shape.lineTo(W / 2, -H / 2);
@@ -162,68 +210,95 @@ function buildLevel(level) {
     p.absarc(h.x, -h.z, HOLE_R, 0, Math.PI * 2, true);
     shape.holes.push(p);
   }
-  const ppu = Math.min(64, Math.floor(2048 / Math.max(W, H)));
-  const boardTex = makeBoardTexture({ W, H, ppu, path, holes, goal, start, holeR: HOLE_R }, anisotropy);
+  const ppu = Math.min(96, Math.floor(2048 / Math.max(W, H)));
+  const boardTex = makeBoardTexture({
+    W, H, ppu, cell: CELL, path, holes, goal, holeR: HOLE_R,
+    startLabel: toW(maze.startLabel), goalLabel: toW(maze.goalLabel),
+  }, anisotropy);
   boardTex.repeat.set(1 / W, 1 / H);
   boardTex.offset.set(0.5, 0.5);
-  const board = new THREE.Mesh(
+  const surface = new THREE.Mesh(
     new THREE.ExtrudeGeometry(shape, { depth: BOARD_T, bevelEnabled: false, curveSegments: 28 }),
     [
-      new THREE.MeshStandardMaterial({ map: boardTex, roughness: 0.55 }),
-      new THREE.MeshStandardMaterial({ color: 0x5a3820, roughness: 0.9 }),
+      new THREE.MeshStandardMaterial({ map: boardTex, roughness: 0.6 }),
+      new THREE.MeshStandardMaterial({ color: 0x7a5a38, roughness: 0.9 }),
     ],
   );
-  board.rotation.x = -Math.PI / 2;
-  board.position.y = -BOARD_T;
-  board.receiveShadow = true;
-  group.add(board);
-
-  const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(W, H),
-    new THREE.MeshStandardMaterial({ color: 0x0d0805, roughness: 1 }),
-  );
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.y = -TRAY_DEPTH;
-  group.add(floor);
-
-  // Brass ring around the finish hole.
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(HOLE_R + 0.05, 0.06, 12, 48),
-    new THREE.MeshStandardMaterial({ color: 0xd4a540, metalness: 1, roughness: 0.3 }),
-  );
-  ring.rotation.x = Math.PI / 2;
-  ring.position.set(goal.x, 0.0, goal.z);
-  ring.castShadow = true;
-  group.add(ring);
+  surface.rotation.x = -Math.PI / 2;
+  surface.position.y = -BOARD_T;
+  surface.receiveShadow = true;
+  board.add(surface);
 
   const boxes = [];
-  for (const s of wallSegments(maze)) {
-    const b = {
-      minx: -W / 2 + s.x0 * CELL - WALL_T / 2,
-      maxx: -W / 2 + s.x1 * CELL + WALL_T / 2,
-      minz: -H / 2 + s.z0 * CELL - WALL_T / 2,
-      maxz: -H / 2 + s.z1 * CELL + WALL_T / 2,
-    };
+  maze.walls.forEach((w, i) => {
+    const c = toW(w);
+    const hl = (WALL_LEN * CELL) / 2, ht = WALL_T / 2;
+    const b = w.horizontal
+      ? { minx: c.x - hl, maxx: c.x + hl, minz: c.z - ht, maxz: c.z + ht }
+      : { minx: c.x - ht, maxx: c.x + ht, minz: c.z - hl, maxz: c.z + hl };
     boxes.push(b);
-    block(group, b, 0, WALL_H, wallTex);
-  }
-  const ft = FRAME_T, frame = [
-    { minx: -W / 2 - ft, maxx: -W / 2, minz: -H / 2 - ft, maxz: H / 2 + ft },
-    { minx: W / 2, maxx: W / 2 + ft, minz: -H / 2 - ft, maxz: H / 2 + ft },
-    { minx: -W / 2, maxx: W / 2, minz: -H / 2 - ft, maxz: -H / 2 },
-    { minx: -W / 2, maxx: W / 2, minz: H / 2, maxz: H / 2 + ft },
-  ];
-  for (const b of frame) {
+    slab(board, b, 0, WALL_H, blockMats[i % blockMats.length], 0.04);
+  });
+  for (const b of ring({ x: W / 2, z: H / 2 }, RIM_T)) {
     boxes.push(b);
-    block(group, b, -TRAY_DEPTH - 0.2, FRAME_H, frameTex);
+    slab(board, b, -BOARD_T, RIM_H, boxMaterial(W), 0.04);
   }
+  boardPivot.add(board);
 
-  pivot.add(group);
-  game.group = group;
-  game.layout = { W, H, boxes, holes: [...holes, goal], start, maze };
+  // ---- Gimbal frame (tilts on one axis) ----
+  const frame = new THREE.Group();
+  const fIn = { x: W / 2 + RIM_T + GAP, z: H / 2 + RIM_T + GAP };
+  for (const b of ring(fIn, GIMBAL_T)) slab(frame, b, -BOARD_T - 0.3, 0.2, boxMaterial(W), 0.05);
+  gimbal.add(frame);
 
-  const ext = Math.max(W, H) / 2 + FRAME_T + 1;
-  Object.assign(sun.shadow.camera, { left: -ext, right: ext, top: ext, bottom: -ext, near: 1, far: 80 });
+  // ---- Outer box (static) ----
+  const box = new THREE.Group();
+  const bIn = { x: fIn.x + GIMBAL_T + GAP, z: fIn.z + GIMBAL_T + GAP };
+  const OX = bIn.x + BOX_T, OZ = bIn.z + BOX_T;
+  for (const b of ring(bIn, BOX_T)) slab(box, b, BOX_BOTTOM, BOX_TOP, boxMaterial(2 * OX), 0.07);
+  // Dark interior so holes read as holes.
+  const inside = new THREE.Mesh(
+    new THREE.PlaneGeometry(bIn.x * 2, bIn.z * 2),
+    new THREE.MeshBasicMaterial({ color: 0x1c140e }),
+  );
+  inside.rotation.x = -Math.PI / 2;
+  inside.position.y = BOX_FLOOR;
+  box.add(inside);
+
+  const knobY = (BOX_BOTTOM + BOX_TOP) / 2 - 0.1;
+  const front = makeKnob();
+  front.position.set(0, knobY, OZ);
+  const side = makeKnob();
+  side.rotation.y = Math.PI / 2;
+  side.position.set(OX, knobY, 0);
+  box.add(front, side);
+  game.knobs = { front, side };
+
+  // Ball-return tray at the front corner.
+  const tray = slab(box, { minx: OX - 2.0, maxx: OX - 0.3, minz: OZ, maxz: OZ + 1.0 }, BOX_BOTTOM, BOX_BOTTOM + 0.7, boxMaterial(2), 0.08);
+  const dish = new THREE.Mesh(
+    new THREE.CircleGeometry(0.42, 32),
+    new THREE.MeshStandardMaterial({ color: 0xc9a273, roughness: 0.8 }),
+  );
+  dish.rotation.x = -Math.PI / 2;
+  dish.position.set(tray.position.x, BOX_BOTTOM + 0.705, tray.position.z);
+  box.add(dish);
+  scene.add(box);
+
+  game.groups = [board, frame, box];
+  game.layout = {
+    W, H, boxes, holes: [...holes, goal], start, maze,
+    extents: [
+      ...[-1, 1].flatMap((sx) => [-1, 1].flatMap((sz) => [BOX_TOP, BOX_BOTTOM].map(
+        (y) => new THREE.Vector3(sx * OX, y, sz * (OZ + (sz > 0 ? 1.0 : 0))),
+      ))),
+      new THREE.Vector3(0, knobY, OZ + 1.0),
+      new THREE.Vector3(OX + 1.0, knobY, 0),
+    ],
+  };
+
+  const ext = Math.max(OX, OZ) + 2;
+  Object.assign(sun.shadow.camera, { left: -ext, right: ext, top: ext, bottom: -ext, near: 1, far: 90 });
   sun.shadow.camera.updateProjectionMatrix();
 
   fitCamera();
@@ -231,19 +306,43 @@ function buildLevel(level) {
   $('hud-level').textContent = `Level ${level}`;
 }
 
+/** Frame the whole box in the space left by the HUD, at a fixed viewing angle. */
 function fitCamera() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
+  camera.clearViewOffset();
+  camera.updateProjectionMatrix();
   if (!game.layout) return;
-  const halfW = game.layout.W / 2 + FRAME_T + 0.3;
-  const halfH = game.layout.H / 2 + FRAME_T + 0.3;
-  const t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-  const hudPad = 1 + 140 / h;  // leave room for the HUD bar
-  const dist = Math.max((halfH * hudPad) / t, halfW / (t * camera.aspect)) + FRAME_H;
-  const ang = THREE.MathUtils.degToRad(8);
-  camera.position.set(0, dist * Math.cos(ang), dist * Math.sin(ang));
-  camera.lookAt(0, 0, -halfH * (hudPad - 1) * 0.5);
+  const top = 64, bottom = 20, sides = 14;
+  const limX = 1 - (2 * sides) / w, limY = 1 - (top + bottom) / h;
+  const dir = new THREE.Vector3(0, Math.cos(CAMERA_ANGLE), Math.sin(CAMERA_ANGLE));
+  const target = new THREE.Vector3(0, (BOX_TOP + BOX_BOTTOM) / 2, 0);
+  const v = new THREE.Vector3();
+  const measure = (d) => {
+    camera.position.copy(dir).multiplyScalar(d).add(target);
+    camera.lookAt(target);
+    camera.updateMatrixWorld();
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const p of game.layout.extents) {
+      v.copy(p).project(camera);
+      x0 = Math.min(x0, v.x); x1 = Math.max(x1, v.x);
+      y0 = Math.min(y0, v.y); y1 = Math.max(y1, v.y);
+    }
+    return { x0, x1, y0, y1 };
+  };
+  let lo = 2, hi = 300;
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2, m = measure(mid);
+    if ((m.x1 - m.x0) / 2 <= limX && (m.y1 - m.y0) / 2 <= limY) hi = mid;
+    else lo = mid;
+  }
+  const m = measure(hi);
+  // Shift the image so the box sits centred in the free area.
+  const wantY = (bottom - top) / h;
+  const shiftY = (wantY - (m.y0 + m.y1) / 2) * (h / 2);
+  const shiftX = ((m.x0 + m.x1) / 2) * (w / 2);
+  camera.setViewOffset(w, h, shiftX, shiftY, w, h);
   camera.updateProjectionMatrix();
 }
 addEventListener('resize', fitCamera);
@@ -255,7 +354,6 @@ function placeAtStart() {
   game.p.z = start.z;
   game.v.x = game.v.z = 0;
   game.spawn = 0;
-  ball.position.set(start.x, BALL_R, start.z);
 }
 
 function resetRun() {
@@ -289,7 +387,7 @@ function updateFall(dt) {
   game.p.z += (f.hole.z - game.p.z) * k;
   if (f.t > 0.06) {
     f.vy -= 45 * dt;
-    f.y = Math.max(f.y + f.vy * dt, -TRAY_DEPTH + BALL_R);
+    f.y = Math.max(f.y + f.vy * dt, BOX_FLOOR + BALL_R);
   }
   if (f.t < 0.9) return;
   if (f.hole.goal) {
@@ -376,7 +474,7 @@ function step(dt) {
       v.z += (dz / d) * pull;
     }
     const damp = Math.exp(-DAMPING * h);
-    let speed = Math.hypot(v.x, v.z) * damp;
+    const speed = Math.hypot(v.x, v.z) * damp;
     const s2 = clamp(speed - ROLL_RESIST * h, 0, MAX_SPEED);
     const f = speed > 1e-6 ? (s2 / speed) * damp : 0;
     v.x *= f;
@@ -508,9 +606,14 @@ renderer.setAnimationLoop(() => {
   ball.scale.setScalar(0.4 + 0.6 * game.spawn);
 
   // The phone itself is tilting, so keep the on-screen tilt subtle there.
-  const visual = input.sensor ? 0.25 : 0.6;
-  pivot.rotation.x = input.tilt.z * visual;
-  pivot.rotation.z = -input.tilt.x * visual;
+  const visual = input.sensor ? 0.3 : 0.55;
+  gimbal.rotation.x = input.tilt.z * visual;
+  boardPivot.rotation.z = -input.tilt.x * visual;
+  // Knobs turn with the axis they drive.
+  if (game.knobs) {
+    game.knobs.front.rotation.z = boardPivot.rotation.z * 6;
+    game.knobs.side.rotation.x = gimbal.rotation.x * 6;
+  }
 
   updateHud();
   renderer.render(scene, camera);
