@@ -115,6 +115,20 @@ async function loadMaps() {
   return { board, wood, walnut, teak };
 }
 
+// ---- Slow motion: real time, half or quarter speed ----
+const SPEEDS = [[1, '1×'], [0.5, '½×'], [0.25, '¼×']];
+let speed = 1;   // index into SPEEDS; starts at half speed so marbles are easy to follow
+const speedBtn = $('btn-speed');
+const showSpeed = () => {
+  speedBtn.textContent = SPEEDS[speed][1];
+  speedBtn.title = SPEEDS[speed][0] === 1 ? 'Real speed' : `Slow motion (${SPEEDS[speed][1]})`;
+};
+speedBtn.addEventListener('click', () => {
+  speed = (speed + 1) % SPEEDS.length;
+  showSpeed();
+});
+showSpeed();
+
 // ---- Sound: wooden knocks, glass clacks, the rumble of rolling ----
 const sound = new MachineSound();
 const soundBtn = $('btn-sound');
@@ -137,8 +151,9 @@ async function start() {
   const clock = new THREE.Clock();
   renderer.setAnimationLoop(() => {
     const dt = Math.min(clock.getDelta(), 0.05);
-    machine.update(dt);
-    updateMeshes(machine, meshes, dt);
+    const scaled = dt * SPEEDS[speed][0];
+    machine.update(scaled);
+    updateMeshes(machine, meshes, scaled);
     sound.play(machine, camera);
     controls.update(dt);
     renderer.render(scene, camera);

@@ -3,7 +3,7 @@
 A wooden marble machine in three.js that runs by itself: a paddle chain lifts
 marbles to the top run, they wind down a banked spiral tower, and a flip-flop
 switch sends them alternately down a steep ramp and off a kicker into a funnel
-bowl (with a catch wall for long jumps), or down a stack of switchback ramps,
+bowl (with a catch wall for long jumps), or down a stack of six switchback ramps,
 dropping from each onto the next. Both ways merge into the return run back to
 the lift. Drag to orbit, pinch to zoom.
 
@@ -14,7 +14,9 @@ The layout is built by test-rolling a marble through it, so jumps land in their
 funnel, drops land on their ramp and every curve is banked for the speed the
 marble really has there. `node tools/check_machine.mjs [seconds]` checks track
 clearances and supports, and runs the machine headless to confirm no marble is
-lost or stuck. `?view=x,y,z,tx,ty,tz` starts the camera at a given spot.
+lost or stuck. `?view=x,y,z,tx,ty,tz` starts the camera at a given spot. The
+button by the sound toggle switches between real speed and ½× or ¼× slow
+motion (it starts at ½×).
 
 Code: `src/machine/` (`path.js` curves, `physics.js`, `layout.js` the machine's
 design, `sim.js` the running machine, `supports.js`, `scene.js` meshes,

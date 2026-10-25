@@ -139,7 +139,7 @@ export function buildLayout() {
   // ---- Paddle-chain lift ----
   const lift = {
     x: -0.30, z: -0.10,          // chain loop centre line (the loop lies in the x-y plane)
-    yBottom: 0.07, yTop: 0.66,   // sprocket centres
+    yBottom: 0.12, yTop: 0.66,   // sprocket centres
     radius: 0.024,               // sprocket pitch radius
     speed: 0.12,                 // chain speed, m/s
     spacing: 0.07,               // between paddles along the chain
@@ -149,7 +149,7 @@ export function buildLayout() {
   lift.releaseY = lift.yTop - 0.006;            // where the top run takes them off
 
   // ---- Top run: from the lift to the spiral tower ----
-  const spiral = { x: 0.20, radius: 0.085, slope: Math.tan((4.2 * Math.PI) / 180), turns: 2.5 };
+  const spiral = { x: 0.20, radius: 0.095, slope: Math.tan((3.0 * Math.PI) / 180), turns: 2.5 };
   spiral.z = lift.z + spiral.radius;            // so the top run meets it square
   const a0 = -Math.PI / 2;
   const top = add('top run', [
@@ -211,7 +211,7 @@ export function buildLayout() {
   const funnel = new Funnel({ cx: centre.x, cz: centre.z, rimY, radius: bowl.radius, depth: bowl.depth });
   // A curved catch wall round the far side stops a marble that jumps long and drops it in.
   const flightDir = Math.atan2(landing.v.z, landing.v.x);
-  funnel.wall = { angle: flightDir, span: 1.4, height: 0.075, radius: bowl.radius + 0.006 };
+  funnel.wall = { angle: flightDir, span: 1.9, height: 0.1, radius: bowl.radius + 0.006 };
   funnels.push(funnel);
   const out = orbit(funnel, landing);
 
@@ -221,7 +221,7 @@ export function buildLayout() {
   const chuteDir = V(0, -0.12, -1).normalize();
 
   // ---- Branch B: switchback stack ----
-  const stack = { z: -0.02, slope: Math.tan((4 * Math.PI) / 180), drop: 0.045, left: -0.165, right: 0.045, levels: 4 };
+  const stack = { z: -0.02, slope: Math.tan((2.6 * Math.PI) / 180), drop: 0.045, left: -0.165, right: 0.045, levels: 6 };
   const first = add('switchback 1', [
     sw,
     V(sw.x - 0.04, sw.y - 0.004, sw.z - 0.015),

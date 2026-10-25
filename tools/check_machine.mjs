@@ -25,7 +25,7 @@ for (const t of layout.tracks) {
 // a marble plus rails apart, except near where they join.
 const need = 2 * R + 2 * RAIL_R + RIDE;
 const joins = new Map();
-const near = (t, s) => (joins.get(t) || []).some((js) => Math.abs(js - s) < 0.08);
+const near = (t, s) => (joins.get(t) || []).some((js) => Math.abs(js - s) < 0.1);
 for (const t of layout.tracks) {
   if (t.end.to) {
     joins.set(t, [...(joins.get(t) || []), t.path.length]);
