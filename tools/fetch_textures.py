@@ -22,10 +22,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "public", "textures")
 API = "https://api.polyhaven.com"
 
-# (material name, Poly Haven asset id)
+# (material name, Poly Haven asset id, quarter turns so the grain runs along the image's width)
 MATERIALS = [
-    ("board", "white_maple_veneer"),  # the playing surface: pale, soft grain like birch ply
-    ("wood", "oak_veneer_02"),        # blocks, rim, frame and box: a shade warmer
+    ("board", "white_maple_veneer", 0),  # the playing surface: pale, soft grain like birch ply
+    ("wood", "oak_veneer_02", 0),        # blocks, rim, frame and box: a shade warmer
+    ("walnut", "walnut_veneer", 1),      # marble machine: posts, bowls, gears
+    ("teak", "teak_veneer", 0),          # marble machine: the base
 ]
 MAPS = {"albedo": "Diffuse", "normal": "nor_gl", "rough": "Rough"}
 SIZE = 1024
@@ -51,11 +53,17 @@ def main():
         return
     os.makedirs(OUT, exist_ok=True)
     manifest = {"source": "Poly Haven (CC0)", "materials": []}
-    for name, asset in MATERIALS:
+    for name, asset, turns in MATERIALS:
         files = json.loads(get(f"{API}/files/{asset}"))
         for suffix, key in MAPS.items():
             img = Image.open(io.BytesIO(get(files[key]["2k"]["jpg"]["url"])))
             img = img.convert("L" if suffix == "rough" else "RGB").resize((SIZE, SIZE), Image.LANCZOS)
+            for _ in range(turns):
+                img = img.rotate(90, expand=True)  # counter-clockwise
+                if suffix == "normal":
+                    # The stored tangent-space vectors turn with the image: (x, y) -> (-y, x).
+                    r, g, b = img.split()
+                    img = Image.merge("RGB", (g.point(lambda c: 255 - c), r, b))
             img.save(os.path.join(OUT, f"{name}_{suffix}.jpg"), quality=88)
         manifest["materials"].append({"name": name, "asset": asset, "url": f"https://polyhaven.com/a/{asset}"})
         print(f"{name}: {asset}")

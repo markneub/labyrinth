@@ -3,58 +3,22 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-  <meta name="theme-color" content="#f2ede6">
+  <meta name="theme-color" content="#e9e3da">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Labyrinth</title>
-  <link rel="stylesheet" href="style.css">
+  <title>Marble Machine</title>
+  <link rel="stylesheet" href="machine.css">
 </head>
 <body>
   <canvas id="scene"></canvas>
-
-  <header id="hud">
-    <div class="stats">
-      <span id="hud-level">Level 1</span>
-      <span id="hud-time">0:00.0</span>
-      <span id="hud-falls">0 falls</span>
-    </div>
-    <div class="actions">
-      <button id="btn-calibrate" class="icon" aria-label="Set current tilt as level" title="Set current tilt as level">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>
-      </button>
-      <button id="btn-restart" class="icon" aria-label="Restart level" title="Restart level">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 3v5h5"/></svg>
-      </button>
-    </div>
+  <header id="title">
+    <h1>Marble Machine</h1>
+    <button id="btn-sound" class="icon" aria-label="Sound" aria-pressed="false" title="Sound">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path class="waves" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/><path class="mute" d="M16 9l6 6M22 9l-6 6"/></svg>
+    </button>
   </header>
-
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
-
-  <div id="overlay-start" class="overlay">
-    <div class="card">
-      <h1>Labyrinth</h1>
-      <p>Tilt your phone to roll the steel ball from <b>START</b> to <b>FINISH</b>. Mind the holes.</p>
-      <p class="hint">Hold the phone the way you want "level" to feel, then tap Play.</p>
-      <button id="btn-play" class="primary" disabled>Loading…</button>
-      <p id="start-level" class="note"></p>
-      <p id="start-branch" class="note"></p>
-      <p id="start-note" class="note warn"></p>
-    </div>
-  </div>
-
-  <div id="overlay-win" class="overlay hidden">
-    <div class="card">
-      <h2>Made it!</h2>
-      <p id="win-time" class="big"></p>
-      <p id="win-detail" class="note"></p>
-      <div class="row">
-        <button id="btn-replay">Replay</button>
-        <button id="btn-next" class="primary">Next level</button>
-      </div>
-    </div>
-  </div>
-
-  <script type="module" src="/src/main.js"></script>
+  <p id="hint" class="hint">Drag to look around · pinch to zoom</p>
+  <p id="loading" class="loading">Building the machine…</p>
+  <script type="module" src="/src/machine/main.js"></script>
 </body>
 </html>

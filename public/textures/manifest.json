@@ -10,6 +10,16 @@
       "name": "wood",
       "asset": "oak_veneer_02",
       "url": "https://polyhaven.com/a/oak_veneer_02"
+    },
+    {
+      "name": "walnut",
+      "asset": "walnut_veneer",
+      "url": "https://polyhaven.com/a/walnut_veneer"
+    },
+    {
+      "name": "teak",
+      "asset": "teak_veneer",
+      "url": "https://polyhaven.com/a/teak_veneer"
     }
   ]
 }

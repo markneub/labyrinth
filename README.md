@@ -1,3 +1,28 @@
+# Marble Machine (branch `marble-machine`)
+
+A wooden marble machine in three.js that runs by itself: a paddle chain lifts
+marbles to the top run, they wind down a banked spiral tower, and a flip-flop
+switch sends them alternately down a steep ramp and off a kicker into a funnel
+bowl (with a catch wall for long jumps), or down a stack of switchback ramps,
+dropping from each onto the next. Both ways merge into the return run back to
+the lift. Drag to orbit, pinch to zoom.
+
+Everything moves by ordinary physics in SI units (a 16 mm glass marble on
+wooden dowel rails: gravity along the track, rolling on two rails, rolling
+resistance and drag; free flight; rolling freely over the funnel's surface).
+The layout is built by test-rolling a marble through it, so jumps land in their
+funnel, drops land on their ramp and every curve is banked for the speed the
+marble really has there. `node tools/check_machine.mjs [seconds]` checks track
+clearances and supports, and runs the machine headless to confirm no marble is
+lost or stuck. `?view=x,y,z,tx,ty,tz` starts the camera at a given spot.
+
+Code: `src/machine/` (`path.js` curves, `physics.js`, `layout.js` the machine's
+design, `sim.js` the running machine, `supports.js`, `scene.js` meshes,
+`sound.js`, `main.js`). Woods are CC0 from Poly Haven: maple rails, oak ties
+and blocks, walnut posts, bowl and gears, teak base.
+
+---
+
 # Labyrinth
 
 A classic wooden tilt-maze in the browser, built with
