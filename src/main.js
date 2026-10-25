@@ -34,6 +34,8 @@ const MAX_SPEED = 22;
 const SUBSTEPS = 6;
 
 const CAMERA_ANGLE = THREE.MathUtils.degToRad(24);
+const ZOOM_MAX = 1.7;         // magnification toward the ball at full tilt
+const ZOOM_RATE = 2.5;        // per second; slow enough not to pump on small wobbles
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -131,6 +133,7 @@ const sfx = new Sfx();
 const game = {
   level: store.get('labyrinth.level', 1),
   layout: null,
+  cam: null,         // fitted framing: { dir, target, dist, halfX, halfZ }
   groups: [],
   knobs: null,
   state: 'menu',      // menu | play | fall | won
@@ -367,8 +370,33 @@ function fitCamera() {
   const shiftX = ((m.x0 + m.x1) / 2) * (w / 2);
   camera.setViewOffset(w, h, shiftX, shiftY, w, h);
   camera.updateProjectionMatrix();
+  game.cam = { dir, target, dist: hi, halfX: game.layout.W / 2, halfZ: game.layout.H / 2 };
+  updateCamera(0);
 }
 addEventListener('resize', fitCamera);
+
+// Lean in toward the ball the harder the board is tilted; ease back out as it levels.
+const zoom = { amount: 0, focus: new THREE.Vector3(), ball: new THREE.Vector3() };
+function updateCamera(dt) {
+  const cam = game.cam;
+  if (!cam) return;
+  const lean = Math.hypot(input.tilt.x, input.tilt.z) / MAX_TILT;
+  const active = game.state === 'play' || game.state === 'fall';
+  const want = active ? THREE.MathUtils.smoothstep(lean, 0.15, 0.8) : 0;
+  zoom.amount += (want - zoom.amount) * (1 - Math.exp(-dt * ZOOM_RATE));
+  const f = 1 + (ZOOM_MAX - 1) * zoom.amount;
+  // Follow the ball, but stop short of showing past the board's edges.
+  ball.getWorldPosition(zoom.ball);
+  const lim = 1 - 1 / f;
+  zoom.ball.set(
+    clamp(zoom.ball.x, -cam.halfX * lim, cam.halfX * lim),
+    0,
+    clamp(zoom.ball.z, -cam.halfZ * lim, cam.halfZ * lim),
+  );
+  zoom.focus.copy(cam.target).lerp(zoom.ball, zoom.amount);
+  camera.position.copy(cam.dir).multiplyScalar(cam.dist / f).add(zoom.focus);
+  camera.lookAt(zoom.focus);
+}
 
 // --- Run state ---
 function placeAtStart() {
@@ -638,6 +666,7 @@ renderer.setAnimationLoop(() => {
     game.knobs.side.rotation.x = gimbal.rotation.x * 6;
   }
 
+  updateCamera(dt);
   updateHud();
   renderer.render(scene, camera);
 });
