@@ -5,17 +5,22 @@ marbles. Drag to orbit, pinch to zoom; the button by the sound toggle switches
 between real speed and ½× or ¼× slow motion (it starts at ½×).
 
 A paddle-chain lift carries marbles to the top run, which hangs from a beam.
-Three flip-flop switches then send them round four routes in turn, like a
+Four flip-flop switches then send them round six routes in turn, like a
 binary counter:
 
-- **F1** splits the top run into twin concentric spirals wound round one tower.
+- **F1** splits the top run into twin concentric spirals wound round one tower
+  (one and a half turns outside, two and a half inside).
 - **F2**, at the outer spiral's foot: a steep drop into a **loop-the-loop** and
-  a kicker that jumps the marble into a **funnel bowl** (with a catch wall), whose
-  spout drops onto a **corkscrew** winding down underneath it; or **hills** that
-  cross over the loop route into a tall **helix column**.
+  a kicker that jumps the marble into the **big funnel**, whose spout drops it
+  down a six-level **drop stack** of short ramps with wooden end blocks; or
+  **hills** that cross over the loop route and jump into the **funnel
+  cascade**, three bowls across the front, each spout throwing marbles on into
+  the next.
 - **F3**, at the inner spiral's foot: the **chime stack**, eight switchback
   ramps whose end bars are tuned, so each marble plays a falling scale; or a
-  nine-lap **stadium helix**.
+  two-lap **stadium helix** that jumps into the cascade's middle bowl.
+- **F4**, under the last bowl: straight out to the **front collector**, or the
+  long way round over a run of **waves**.
 
 Everything merges into the collectors and back run to the lift.
 
@@ -30,7 +35,7 @@ loop's top). Tracks are laid with a turtle (`Turtle` in `path.js`: straights,
 turns, spirals, hills, loops, racetrack helices), so pieces always join smoothly.
 
 Checks: `node tools/check_machine.mjs [seconds]` checks track clearances and
-supports and runs the machine headless (10 minutes with 12 marbles: ~340 laps,
+supports and runs the machine headless (10 minutes with 12 marbles: ~335 laps,
 none lost or stuck); `node tools/plot_machine.mjs out.svg` draws the tracks
 from above and the front. `?view=x,y,z,tx,ty,tz` starts the camera at a given
 spot; the corner shows the frame rate.

@@ -97,8 +97,32 @@ export function planSupports(layout) {
   }
   for (const l of ladders) posts.push({ base: l.base, top: l.top, arm: null, track: null, s: 0 });
 
+  // The little drop stack under the big funnel hangs between two ladder posts,
+  // one off its north end and one beside its south end, clear of the bowl above.
+  const drops = layout.drops || [];
+  if (drops.length) {
+    const zs = drops.flatMap((d) => [d.path.at(0).z, d.path.at(d.path.length).z]);
+    const x = drops[0].path.at(0).x;
+    const topY = Math.max(...drops.map((d) => Math.max(d.path.at(0).y, d.path.at(d.path.length).y))) - TIE_DROP + 0.004;
+    const dropPosts = [
+      { x, z: Math.min(...zs) - 0.022, north: true },
+      { x: x + 0.028, z: Math.max(...zs) - 0.012, north: false },
+    ];
+    for (const lp of dropPosts) posts.push({ base: new THREE.Vector3(lp.x, 0, lp.z), top: new THREE.Vector3(lp.x, topY, lp.z), arm: null, track: null, s: 0 });
+    for (const d of drops) {
+      for (const s of [0.012, d.path.length - 0.012]) {
+        const p = d.path.at(s);
+        d.path.frame(s, frame);
+        const under = p.clone().addScaledVector(frame.u, -TIE_DROP);
+        const north = p.z < (Math.min(...zs) + Math.max(...zs)) / 2;
+        const lp = dropPosts.find((q) => q.north === north);
+        posts.push({ base: null, top: null, arm: { from: new THREE.Vector3(lp.x, under.y, lp.z), to: under }, track: d, s });
+      }
+    }
+  }
+
   for (const track of layout.tracks) {
-    if (onPosts.has(track) || track === topRun) continue;
+    if (onPosts.has(track) || track === topRun || drops.includes(track)) continue;
     const isRamp = stack.ramps.includes(track) && track !== stack.ramps[0];
     if (isRamp && onLadder.has(`${track.name}:start`) && onLadder.has(`${track.name}:end`)) continue;
     const len = track.path.length;

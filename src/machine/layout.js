@@ -165,7 +165,11 @@ const V = (x, y, z) => new THREE.Vector3(x, y, z);
  * An S-bend: `forward` metres ahead while stepping `side` metres to the left
  * (negative: right), as two equal opposite arcs, falling `drop` metres.
  */
+/** About how fast a marble dropped from a funnel's spout onto the ramp below sets off along it. */
+const SPOUT_V = 0.12;
+
 function sBend(t, forward, side, drop) {
+  if (Math.abs(side) < 1e-3) return t.straight(forward, drop / forward);
   const a = 2 * Math.atan2(Math.abs(side) / 2, forward / 2);
   const r = forward / 2 / Math.sin(a);
   const sign = Math.sign(side) || 1;
@@ -252,7 +256,7 @@ export function buildLayout() {
   // ---- F1: twin concentric spirals round one tower ----
   const f1 = end(top);
   const outerT = turtle(f1.p, 0, 0.03).straight(tower.x - f1.p.x, 0.03);
-  outerT.turn(tower.outer, -2.5 * 2 * Math.PI, 0.048);
+  outerT.turn(tower.outer, -1.5 * 2 * Math.PI, 0.048);
   outerT.straight(0.09, 0.03);
   const outer = lay('outer spiral', outerT);
   rings.push({ x: tower.x, z: tower.z, radius: tower.outer, postRadius: tower.outer + 0.035, angles: [Math.PI * 0.25, Math.PI * 0.75, Math.PI * 1.25, Math.PI * 1.75], tracks: [outer] });
@@ -262,7 +266,7 @@ export function buildLayout() {
   const half = Math.atan2(dz / 2, run1 / 2) * 2, rS = run1 / 2 / Math.sin(half);
   innerT.turn(rS, -half, 0.03);
   innerT.turn(rS, half, 0.03);
-  innerT.turn(tower.inner, -3.5 * 2 * Math.PI, 0.085);
+  innerT.turn(tower.inner, -2.5 * 2 * Math.PI, 0.085);
   innerT.straight(0.09, 0.03);
   const inner = lay('inner spiral', innerT);
   fork(top, outer, inner);
@@ -270,47 +274,100 @@ export function buildLayout() {
   const vOuter = run(outer, v);
   const vInner = run(inner, v);
 
-  // ---- F2 (outer spiral's exit): loop-the-loop and jump / hills and helix column ----
+  // ---- Funnel bowls: placed where a jump lands, left through a spout ----
+  /** A funnel where the marble flying off `track` (at speed v) comes down, partway in and across. */
+  const catchIn = (track, v, { radius = 0.062, depth = 0.04, below = 0.045, landAt = 0.55, side = 1, ring = false } = {}) => {
+    const off = launch(track, v);
+    const rimY = off.p.y - below;
+    const probe = new Funnel({ cx: 0, cz: 0, rimY, radius, depth });
+    const land = flyUntil(off, (p, vel) => vel.y < 0 && p.y <= probe.surface(landAt * radius) + R);
+    flights.push(land.arc);
+    const across = V(-land.v.z * side, 0, land.v.x * side).normalize();
+    const c = land.p.clone().addScaledVector(across, landAt * radius);
+    const f = new Funnel({ cx: c.x, cz: c.z, rimY, radius, depth });
+    f.wall = ring
+      ? { angle: 0, span: 2 * Math.PI, height: 0.02, radius: radius + 0.006 }
+      : { angle: Math.atan2(land.v.z, land.v.x), span: 1.5, height: 0.05, radius: radius + 0.006 };
+    funnels.push(f);
+    f.orbit = orbit(f, land).t;
+    return f;
+  };
+  /**
+   * The ramp a funnel's spout drops onto, heading `h`: `len` metres falling
+   * at `grade`, then a kick up off the end (or straight on into `then`).
+   */
+  const spoutRamp = (name, f, h, len, grade = 0.12, kick = -0.3) => {
+    const holeY = f.surface(f.hole);
+    const t = turtle(V(f.cx, holeY - 0.032, f.cz), h, grade);
+    t.straight(len, grade);
+    if (kick !== null) t.ease(0.035, kick);
+    const ramp = lay(name, t, { backstop: true });
+    ramp.catch = [0, 0.03];
+    ramp.end = { type: 'fly' };
+    f.exitTo = ramp;
+    flights.push([V(f.cx, holeY, f.cz), ramp.path.at(0)]);
+    return ramp;
+  };
+  /** Search a spout ramp's length so its jump lands in funnel `to` (partway in). */
+  const aimRamp = (name, from, to, grade = 0.12, kick = -0.3) => {
+    const h = Math.atan2(to.cz - from.cz, to.cx - from.cx);
+    const target = (land) => Math.abs(Math.hypot(land.x - to.cx, land.z - to.cz) - 0.55 * to.radius);
+    let best = null;
+    for (let len = 0.05; len <= 0.2; len += 0.005) {
+      const ramp = spoutRamp(name, from, h, len, grade, kick);
+      tracks.pop();
+      flights.pop();
+      const tip = ramp.path.at(ramp.path.length);
+      if (Math.hypot(tip.x - to.cx, tip.z - to.cz) < to.radius + 0.012) break;   // stop short of its rim
+      const v0 = roll(ramp, SPOUT_V).v;
+      const off = launch(ramp, v0);
+      try {
+        const land = flyUntil(off, (p, vel) => vel.y < 0 && p.y <= to.restY(p.x, p.z) && Math.hypot(p.x - to.cx, p.z - to.cz) < to.radius);
+        const miss = target(land.p);
+        if (!best || miss < best.miss) best = { len, miss };
+      } catch { /* flew past */ }
+    }
+    if (!best) throw new Error(`${name}: can't reach the next funnel`);
+    return spoutRamp(name, from, h, best.len, grade, kick);
+  };
+
+  // ---- F2 (outer spiral's exit): loop-the-loop and jump / hills into the funnel cascade ----
   const f2 = end(outer);
   const loopT = turtle(f2.p, E, 0.03);
   loopT.turn(0.055, Math.PI / 2, 0.04);         // left, towards the front
   loopT.turn(0.055, -Math.PI / 2, 0.04);        // and right, heading west again
-  loopT.straight(0.02, 0.04).ease(0.12, 0.85).straight(0.07, 0.85).ease(0.07, 0.0).straight(0.02, 0);
-  loopT.loop(0.042, -0.034);                            // drifting right, away from the column
-  loopT.straight(0.02, 0.0).ease(0.04, -0.38);         // and kick up off the end
+  loopT.straight(0.02, 0.04).ease(0.12, 0.85).straight(0.1, 0.85).ease(0.07, 0.0).straight(0.02, 0);
+  loopT.loop(0.042, -0.034);                    // drifting right, towards the back
+  loopT.straight(0.02, 0.0).ease(0.04, -0.38);  // and kick up off the end
   const looper = lay('loop-the-loop', loopT);
   looper.end = { type: 'fly' };
 
   // Hills westward, then a left turn that carries the marble out over the
-  // loop route below, to the top of the helix column at the front.
-  const colT = turtle(f2.p, E, 0.03);
-  colT.straight(0.04, 0.03).hills(0.18, 2, 0.006, 0.04).straight(0.02, 0.035);
-  colT.turn(0.06, Math.PI / 2, 0.035);
-  colT.straight(0.19, 0.035);
-  const hills = lay('hills', colT);
+  // loop route below, and a kick off the end into the first funnel of the cascade.
+  const hillT = turtle(f2.p, E, 0.03);
+  hillT.straight(0.04, 0.03).hills(0.18, 2, 0.006, 0.04).straight(0.02, 0.035);
+  hillT.turn(0.06, Math.PI / 2, 0.035);
+  hillT.straight(0.07, 0.035).ease(0.035, -0.3);
+  const hills = lay('hills', hillT);
+  hills.end = { type: 'fly' };
   fork(outer, looper, hills);
   const vLoop = run(looper, vOuter);
   const vHills = run(hills, vOuter);
 
-  // The jump off the end of the loop lands in a funnel bowl, set where it comes down.
-  const bowl = { radius: 0.072, depth: 0.05, landAt: 0.62 };
-  const lifted = launch(looper, vLoop);
-  const rimY = lifted.p.y - 0.05;
-  const probe = new Funnel({ cx: 0, cz: 0, rimY, radius: bowl.radius, depth: bowl.depth });
-  const landing = flyUntil(lifted, (p, vel) => vel.y < 0 && p.y <= probe.surface(bowl.landAt * bowl.radius) + R);
-  flights.push(landing.arc);
-  const across = V(-landing.v.z, 0, landing.v.x).normalize();
-  const centre = landing.p.clone().addScaledVector(across, bowl.landAt * bowl.radius);
-  const funnel = new Funnel({ cx: centre.x, cz: centre.z, rimY, radius: bowl.radius, depth: bowl.depth });
-  funnel.wall = { angle: Math.atan2(landing.v.z, landing.v.x), span: 1.5, height: 0.065, radius: bowl.radius + 0.006 };
-  funnels.push(funnel);
-  const orbitTime = orbit(funnel, landing).t;
-
+  // The loop's jump lands in the big funnel on the left.
+  const funnel = catchIn(looper, vLoop, { radius: 0.072, depth: 0.05, below: 0.05, landAt: 0.62 });
+  const orbitTime = funnel.orbit;
   const holeY = funnel.surface(funnel.hole);
+
+  // The cascade along the front: the hills' jump lands in bowl A, which kicks
+  // marbles on into B, and B into C.
+  const bowlA = catchIn(hills, vHills, { side: -1 });
 
   // ---- F3 (inner spiral's exit): chime stack / stadium helix ----
   const f3 = end(inner);
-  const stack = { z: -0.13, slope: Math.tan((2.6 * Math.PI) / 180), drop: 0.042, left: -0.25, right: 0.17, levels: 8 };
+  const stack = { z: -0.13, slope: Math.tan((2.6 * Math.PI) / 180), drop: 0.042, left: -0.25, right: 0.17 };
+  stack.levels = Math.floor((f3.p.y - 0.29) / 0.0607) + 1;
+  if (stack.levels % 2) stack.levels--;    // finish heading east, round to the back run
   const chimeT = turtle(f3.p, E, 0.03);
   const shift = stack.z - f3.p.z, ahead = 0.12;
   const half3 = Math.atan2(Math.abs(shift) / 2, ahead / 2) * 2, r3 = ahead / 2 / Math.sin(half3);
@@ -320,24 +377,40 @@ export function buildLayout() {
   const first = lay('chime stack 1', chimeT);
   first.end = { type: 'fly', wall: true, chime: 0 };
 
+  // Stadium helix: out to the front, two laps, then west and a kick into bowl B.
   const stadT = turtle(f3.p, E, 0.03);
-  // Out to the front, dropping quickly at first to pass under the loop route.
-  stadT.straight(0.03, 0.06).turn(0.06, Math.PI / 2, 0.07);     // left, out to the front
-  stadT.straight(0.13, 0.04);
-  stadT.turn(0.06, Math.PI / 2, 0.04);                           // left again: heading east
+  stadT.straight(0.03, 0.06).turn(0.06, Math.PI / 2, 0.07);     // left, out to the front (under the loop route)
+  stadT.turn(0.06, Math.PI / 2, 0.05);                           // left again: heading east
   const st0 = stadT.p.clone();
-  stadT.stadium(0.12, 0.065, 9, 0.06);
-  stadT.straight(0.12, 0.05).turn(0.065, -Math.PI / 2, 0.05);    // out of the stadium, right: heading south
-  stadT.straight(0.02, 0.05);
+  stadT.stadium(0.12, 0.06, 2, 0.06);
+  stadT.straight(0.12, 0.05).turn(0.06, -Math.PI, 0.05);         // and half a lap more: heading west, along its front
   const stadium = lay('stadium helix', stadT);
-  // A post at the centre of each half-turn, with arms out to every lap.
   for (const x of [st0.x + 0.12, st0.x]) {
-    helixPosts.push({ x, z: st0.z + 0.065, top: st0.y + 0.03, radius: 0.007, tracks: [stadium], coilRadius: 0.065,
+    helixPosts.push({ x, z: st0.z + 0.06, top: st0.y + 0.03, radius: 0.007, tracks: [stadium], coilRadius: 0.06,
       spokes: x === st0.x ? [Math.PI * 0.75, Math.PI * 1.25] : [Math.PI * 0.25, Math.PI * 1.75] });
   }
   fork(inner, first, stadium);
   const vFirst = run(first, vInner);
   const vStadium = run(stadium, vInner);
+
+  // Bowl B: A's spout ramp throws marbles into it from the west, and the
+  // stadium's run throws them in from the north-east.
+  const sEnd0 = end(stadium);
+  const feedT = turtle(sEnd0.p, E, 0.05);
+  feedT.straight(0.02, 0.05);
+  feedT.turn(0.06, Math.PI / 3, 0.05);           // left, out towards the front
+  feedT.ease(0.03, -0.12);
+  const feed = lay('stadium feed', feedT);
+  feed.end = { type: 'fly' };
+  link(stadium, feed);
+  const vFeed = run(feed, vStadium);
+  const bowlB = catchIn(feed, vFeed, { ring: true, below: 0.04 });
+  const rampAB = aimRamp('cascade A-B', bowlA, bowlB);
+  run(rampAB, SPOUT_V);
+  // Bowl C, east of B, where B's ramp throws marbles.
+  const rampBC = spoutRamp('cascade B-C', bowlB, -0.6, 0.1);
+  const vBC = run(rampBC, SPOUT_V);
+  const bowlC = catchIn(rampBC, vBC, {});
 
   // Chime stack: each ramp ends at a tuned bar; the marble strikes it and drops to the ramp below.
   const ramps = [first];
@@ -380,87 +453,106 @@ export function buildLayout() {
   const home = add('to the lift', [merge, pick], { startDir: end(back).dir, endDir: end(back).dir });
   link(back, home);
 
-  // ---- Front collector ----
-  // From the stadium round to the front edge, west along it, then north up
-  // the left side and round into the merge with the back run. It is laid
-  // in three pieces so the helix column and the funnel's chute can join it.
-  const sEnd = end(stadium);
-  const leftX = -0.315, frontZ = Math.min(0.375, sEnd.p.z + 0.1);
-  const pieces = [];
-  const cT = turtle(sEnd.p, S, 0.05);
-  cT.turn(frontZ - cT.p.z, -Math.PI / 2, 0.05);           // right: heading west along the front edge
-  // Grade so it arrives at the merge just above the back run's end.
-  const lenWest = cT.p.x - (leftX + 0.06), lenNorth = frontZ - 0.06 - (merge.z + 0.05);
+  // ---- F4, under bowl C: the front collector, or a detour over the waves ----
+  // C's spout drops onto a short chute heading west, to the flip-flop.
+  const cHole = bowlC.surface(bowlC.hole);
+  const cT0 = turtle(V(bowlC.cx, cHole - 0.032, bowlC.cz), E, 0.06);
+  cT0.straight(0.05, 0.06);
+  const cChute = lay('cascade spout', cT0, { backstop: true });
+  cChute.catch = [0, 0.03];
+  bowlC.exitTo = cChute;
+  flights.push([V(bowlC.cx, cHole, bowlC.cz), cChute.path.at(0)]);
+  const vC = run(cChute, SPOUT_V);
+
+  const leftX = -0.315, frontZ = 0.375;
+  const f4 = end(cChute);
+  // (a) out to the front edge and west along it.
+  const aT = turtle(f4.p, E, 0.06);
+  sBend(aT, 0.16, frontZ - f4.p.z, 0.06 * 0.18);
+  const lenWest = aT.p.x - (leftX + 0.06), lenNorth = frontZ - 0.06 - (merge.z + 0.05);
   const total = lenWest + 0.06 * Math.PI / 2 + lenNorth + 0.05 * Math.PI / 2 + (leftX - 0.05 - merge.x);
-  const g = (cT.p.y - merge.y - 0.003) / total;
-  const j1x = leftX + 0.075;                                // where the helix column joins
-  cT.straight(cT.p.x - j1x, g);
-  const colA = lay('front collector', cT);
-  const cT2 = turtle(cT.p, E, g);
-  cT2.straight(j1x - (leftX + 0.06), g).turn(0.06, -Math.PI / 2, g);   // right: heading north
-  const j2z = funnel.cz - 0.16;                             // where the funnel's corkscrew joins
+  const g = (aT.p.y - merge.y - 0.003) / total;
+  const jWaves = -0.2;                                        // where the waves rejoin
+  aT.straight(aT.p.x - jWaves, g);
+  const colA = lay('front collector', aT);
+  // (b) straight on west over a run of waves, under the cascade, and out to rejoin further along.
+  const j3 = end(colA);
+  const bT = turtle(f4.p, E, 0.06);
+  bT.straight(0.02, 0.06).ease(0.03, 0.09).straight(0.03, 0.09);   // a run-up first
+  const wavesLen = bT.p.x - j3.p.x - 0.2;
+  bT.hills(wavesLen, 3, 0.006, (bT.p.y - j3.p.y - 0.004) / (wavesLen + 0.2));
+  sBendTo(bT, j3.p);
+  const waves = add('waves', [...bT.points().slice(0, -1), j3.p], { startDir: [-1, -0.06, 0], endDir: j3.dir });
+  fork(cChute, colA, waves);
+
+  // ---- Under the big funnel: a little drop stack ----
+  // The spout drops onto the first of three short ramps running north and
+  // south; the marble strikes the end block of each and falls to the next,
+  // and the last joins the left collector.
+  const dropT = turtle(V(funnel.cx, holeY - 0.032, funnel.cz), N, 0.05);
+  dropT.straight(0.1, 0.05);
+  const drop1 = lay('drop stack 1', dropT, { backstop: true });
+  drop1.catch = [0, 0.03];
+  drop1.end = { type: 'fly', wall: true };
+  funnel.exitTo = drop1;
+  flights.push([V(funnel.cx, holeY, funnel.cz), drop1.path.at(0)]);
+  let vd = run(drop1, SPOUT_V), dPrev = drop1, dHead = N;
+  const drops = [drop1];
+  for (let k = 2; k <= 6; k++) {
+    const off = launch(dPrev, vd);
+    const y = off.p.y - 0.0335;
+    const land = flyUntil(off, (p, vel) => vel.y < 0 && p.y <= y);
+    flights.push(land.arc);
+    dHead = dHead === N ? S : N;
+    const start = off.p.clone().setY(y + 0.002);
+    start.z -= Math.sin(dHead) * 0.014;
+    const dT = turtle(start, dHead, 0.05);
+    dT.straight(k === 6 ? 0.08 : 0.1, 0.05);
+    const d = lay(`drop stack ${k}`, dT, { backstop: true });
+    d.catch = [0, 0.04];
+    d.end = k === 6 ? { type: 'next' } : { type: 'fly', wall: true };
+    vd = roll(d, Math.abs(land.v.z), d.path.nearest(land.p).s).v;
+    drops.push(d);
+    dPrev = d;
+  }
+  const dEnd = end(dPrev);
+
+  const cT2 = turtle(j3.p, E, g);
+  cT2.straight(j3.p.x - (leftX + 0.06), g).turn(0.06, -Math.PI / 2, g);   // right: heading north
+  const j2z = dEnd.p.z;                                     // where the funnel's drop stack joins
   cT2.straight(cT2.p.z - j2z, g);
   const colB = lay('left collector', cT2);
+  link(colA, colB);
+  link(waves, colB);
   const cT3 = turtle(cT2.p, N, g);
   cT3.straight(cT3.p.z - (merge.z + 0.05), g).turn(0.05, Math.PI / 2, g);   // left: heading west, alongside the back run
   cT3.straight(Math.max(0.004, cT3.p.x - merge.x), g);
   const colC = lay('to the merge', cT3);
-  pieces.push(colA, colB, colC);
-  link(stadium, colA);
-  link(colA, colB);
   link(colB, colC);
   link(colC, home);
-  let vCollector = run(colA, vStadium);
-  vCollector = run(colB, vCollector);
+  let vCollector = run(colA, vC);
+  const vWaves = run(waves, vC);
+  vCollector = run(colB, Math.max(vCollector, vWaves));
   vCollector = run(colC, vCollector);
 
-  // The hills run into a helix column at the front, winding down to join the
-  // front collector: as many turns as it takes to arrive at the junction's height.
-  // It winds to the right (clockwise from above), so after a quarter turn
-  // more than a whole number it leaves from its front heading west.
-  const hEnd = end(hills);
-  const colRadius = 0.075;
-  const j1 = end(colA);
-  const exitAt = V(hEnd.p.x - colRadius, 0, hEnd.p.z + colRadius);
-  const joinLen = exitAt.x - j1.p.x;
-  const yExit = j1.p.y + joinLen * 0.06;
-  let turns = 0.25;
-  while ((hEnd.p.y - yExit) / ((turns + 1) * 2 * Math.PI * colRadius) > 0.066) turns += 1;
-  const colGrade = (hEnd.p.y - yExit) / (turns * 2 * Math.PI * colRadius);
-  const colT2 = turtle(hEnd.p, S, colGrade);
-  const colCentre = colT2.turn(colRadius, -turns * 2 * Math.PI, colGrade);
-  // An S-bend out to the collector, falling to meet it.
-  sBendTo(colT2, j1.p);
-  const column = add('helix column', [...colT2.points().slice(0, -1), j1.p], { startDir: [0, -colGrade, 1], endDir: j1.dir });
-  link(hills, column);
-  link(column, colB);
-  helixPosts.push({ x: colCentre.x, z: colCentre.z, top: hEnd.p.y + 0.03, radius: 0.009, tracks: [column], coilRadius: colRadius });
-  const vColumn = run(column, vHills);
-
-  // The funnel's spout drops onto a corkscrew that winds down underneath the
-  // bowl and leaves heading north into the left collector.
+  // From the foot of the drop stack round into the left collector.
   const j2 = end(colB);
-  const chuteStart = V(funnel.cx, holeY - 0.035, funnel.cz);
-  const corkR = 0.058;
-  const ckT = turtle(chuteStart, 0, 0.06);
-  ckT.turn(corkR / 2, Math.PI, 0.06);                       // out from under the spout to the corkscrew's circle
-  const yOut = j2.p.y + 0.012;
-  let ckTurns = 0.75;
-  while ((ckT.p.y - yOut) / ((ckTurns + 1) * 2 * Math.PI * corkR) > 0.082) ckTurns += 1;
-  const ckGrade = (ckT.p.y - yOut) / (ckTurns * 2 * Math.PI * corkR);
-  ckT.turn(corkR, ckTurns * 2 * Math.PI, ckGrade);          // left round the funnel's centre
-  sBendTo(ckT, j2.p);
-  const chute = add('funnel corkscrew', [...ckT.points().slice(0, -1), j2.p], { startDir: [1, -0.06, 0], endDir: j2.dir, backstop: true });
-  rings.push({ x: funnel.cx, z: funnel.cz, radius: corkR, postRadius: corkR + 0.032, angles: [Math.PI * 0.5, Math.PI * 1.15, Math.PI * 1.85], tracks: [chute] });
-  chute.catch = [0, 0.03];
-  funnel.exitTo = chute;
-  link(chute, colC);
-  flights.push([V(funnel.cx, holeY, funnel.cz), chuteStart.clone()]);
-  const vChute = run(chute, 0.05);
+  const djR = Math.abs(j2.p.x - dEnd.p.x) / 2;
+  // (the turn's grade found by trial, since easing into it costs a little height)
+  let djGrade = (dEnd.p.y - j2.p.y) / (Math.PI * djR), dj;
+  for (let i = 0; i < 4; i++) {
+    dj = turtle(dEnd.p, dHead, 0.05);
+    dj.turn(djR, Math.PI, djGrade);   // left round, to heading north
+    djGrade += (dj.p.y - j2.p.y) / (Math.PI * djR);
+  }
+  const dropOut = add('drop stack out', [...dj.points().slice(0, -1), j2.p], { startDir: [0, -0.05, Math.sin(dHead)], endDir: j2.dir });
+  link(dPrev, dropOut);
+  link(dropOut, colC);
+  const vChute = run(dropOut, vd);
 
   const report = {
-    switches: switches.length, jumpLaunch: lifted, orbit: orbitTime,
-    speeds: { vOuter, vInner, vLoop, vHills, vColumn, vFirst, vStadium, vBack, vCollector, vChute },
+    switches: switches.length, jumpLaunch: launch(looper, vLoop), orbit: orbitTime,
+    speeds: { vOuter, vInner, vLoop, vHills, vFirst, vStadium, vFeed, vBack, vCollector, vWaves, vChute },
   };
 
   lift.from = home;
@@ -470,6 +562,7 @@ export function buildLayout() {
     tracks, funnels, switches, lift, flights, chimes, helixPosts, rings,
     spiral: { x: tower.x, z: tower.z, radius: tower.inner },
     stack: { ...stack, ramps },
+    drops,
     report,
   };
 }

@@ -216,11 +216,13 @@ export class Machine {
     for (const f of this.layout.funnels) {
       if (f === m.dropped) continue;   // just fell through this one's hole
       const r = Math.hypot(m.p.x - f.cx, m.p.z - f.cz);
-      if (r < f.radius - R && r > f.hole + R && m.vel.y < 0 && m.p.y <= f.restY(m.p.x, m.p.z)) {
+      const rest = f.restY(m.p.x, m.p.z);
+      // (coming down onto the surface, not passing underneath the bowl)
+      if (r < f.radius - R && r > f.hole + R && m.vel.y < 0 && m.p.y <= rest && m.p.y > rest - 0.01) {
         const n = f.normal(m.p.x, m.p.z, tmpV);
         this.events.push({ kind: 'land', p: m.p.clone(), strength: -m.vel.dot(n) });
         m.vel.addScaledVector(n, -m.vel.dot(n));
-        m.p.y = f.restY(m.p.x, m.p.z);
+        m.p.y = rest;
         m.mode = 'funnel';
         m.funnel = f;
         m.dropped = null;
