@@ -1,0 +1,15 @@
+{
+  "source": "Poly Haven (CC0)",
+  "materials": [
+    {
+      "name": "board",
+      "asset": "white_maple_veneer",
+      "url": "https://polyhaven.com/a/white_maple_veneer"
+    },
+    {
+      "name": "wood",
+      "asset": "oak_veneer_02",
+      "url": "https://polyhaven.com/a/oak_veneer_02"
+    }
+  ]
+}

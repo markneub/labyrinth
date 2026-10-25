@@ -40,6 +40,29 @@ function finish(canvas, anisotropy) {
   return tex;
 }
 
+/**
+ * Load the Poly Haven wood maps fetched by tools/fetch_textures.py.
+ * Resolves to { board, wood }, each { albedo, normal, rough }.
+ */
+export async function loadWoodMaps(base, anisotropy = 1) {
+  const loader = new THREE.TextureLoader();
+  const load = async (file, srgb) => {
+    const tex = await loader.loadAsync(`${base}textures/${file}.jpg`);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = anisotropy;
+    if (srgb) tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  };
+  const set = async (name) => {
+    const [albedo, normal, rough] = await Promise.all([
+      load(`${name}_albedo`, true), load(`${name}_normal`, false), load(`${name}_rough`, false),
+    ]);
+    return { albedo, normal, rough };
+  };
+  const [board, wood] = await Promise.all([set('board'), set('wood')]);
+  return { board, wood };
+}
+
 export function makeWoodTexture(w, h, opts, anisotropy = 1) {
   const canvas = document.createElement('canvas');
   canvas.width = w;
@@ -51,16 +74,25 @@ export function makeWoodTexture(w, h, opts, anisotropy = 1) {
 }
 
 /**
- * The playing surface: pale wood plus the printed guide line, hole numbers
- * and START / FINISH marks. Canvas x/y map to world x/z.
+ * The playing surface: pale wood (a photo texture when given, procedural
+ * otherwise) plus the printed guide line, hole numbers and START / FINISH
+ * marks. Canvas x/y map to world x/z.
  */
-export function makeBoardTexture({ W, H, ppu, cell, path, holes, goal, startLabel, goalLabel, holeR }, anisotropy = 1) {
+export function makeBoardTexture({ W, H, ppu, cell, path, holes, goal, startLabel, goalLabel, holeR, wood }, anisotropy = 1) {
   const cw = Math.round(W * ppu), ch = Math.round(H * ppu);
   const canvas = document.createElement('canvas');
   canvas.width = cw;
   canvas.height = ch;
   const ctx = canvas.getContext('2d');
-  paintWood(ctx, cw, ch, { light: [238, 214, 170], dark: [218, 186, 136], seed: 11, scale: ppu * 0.03 });
+  if (wood) {
+    ctx.drawImage(wood, 0, 0, cw, ch);
+    // Warm the maple toward the honey tone of the classic boards.
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = '#f4dcae';
+    ctx.fillRect(0, 0, cw, ch);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+  else paintWood(ctx, cw, ch, { light: [238, 214, 170], dark: [218, 186, 136], seed: 11, scale: ppu * 0.03 });
 
   const P = (pt) => [(pt.x + W / 2) * ppu, (pt.z + H / 2) * ppu];
   const ink = 'rgba(24, 18, 12, 0.92)';

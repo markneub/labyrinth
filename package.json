@@ -1,0 +1,19 @@
+{
+  "name": "labyrinth",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A classic wooden tilt-maze in three.js, played by tilting your phone",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "textures": "python3 tools/fetch_textures.py"
+  },
+  "dependencies": {
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "vite": "^7.3.7"
+  }
+}

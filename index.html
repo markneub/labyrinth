@@ -9,14 +9,6 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>Labyrinth</title>
   <link rel="stylesheet" href="style.css">
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
-      }
-    }
-  </script>
 </head>
 <body>
   <canvas id="scene"></canvas>
@@ -44,7 +36,7 @@
       <h1>Labyrinth</h1>
       <p>Tilt your phone to roll the steel ball from <b>START</b> to <b>FINISH</b>. Mind the holes.</p>
       <p class="hint">Hold the phone the way you want "level" to feel, then tap Play.</p>
-      <button id="btn-play" class="primary">Play</button>
+      <button id="btn-play" class="primary" disabled>Loading…</button>
       <p id="start-level" class="note"></p>
       <p id="start-note" class="note warn"></p>
     </div>
@@ -62,6 +54,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/main.js"></script>
+  <script type="module" src="/src/main.js"></script>
 </body>
 </html>

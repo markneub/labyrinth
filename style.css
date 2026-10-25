@@ -70,6 +70,8 @@ button {
   box-shadow: 0 2px 0 rgba(90, 60, 30, 0.35);
 }
 
+button:disabled { opacity: 0.6; cursor: default; }
+
 button:active { transform: translateY(1px); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.35); }
 
 button.primary { background: var(--accent); color: var(--paper); font-weight: bold; }

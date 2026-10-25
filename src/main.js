@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { generateLevel, WALL_LEN } from './maze.js';
-import { makeBoardTexture, makeWoodTexture } from './textures.js';
+import { loadWoodMaps, makeBoardTexture, makeWoodTexture } from './textures.js';
 import { TiltInput } from './input.js';
 import { Sfx } from './audio.js';
 
@@ -91,15 +91,32 @@ gimbal.add(boardPivot);
 scene.add(gimbal);
 
 const anisotropy = renderer.capabilities.getMaxAnisotropy();
-const pine = (seed, scale) =>
-  makeWoodTexture(512, 96, { light: [230, 196, 142], dark: [204, 162, 104], seed, scale }, anisotropy);
-const blockTex = pine(7, 1.0);
-const boxTex = pine(3, 1.6);
-const blockMats = [1, 0.97, 0.94, 1.03].map((k) => new THREE.MeshStandardMaterial({
-  map: blockTex,
-  color: new THREE.Color(k, k * 0.99, k * 0.97),
-  roughness: 0.7,
-}));
+
+// Poly Haven wood maps, filled in by init(); procedural wood if they fail to load.
+let woodMaps = null;    // blocks, rim, frame and box: { albedo, normal, rough }
+let boardMaps = null;   // playing surface
+let fallbackWood = null;
+let blockMats = [];
+
+/** Wood for a part `length` units long, grain running along it. */
+function woodMaterial(length, { tint = 1, offset = 0 } = {}) {
+  const tile = (t) => {
+    const c = t.clone();
+    c.repeat.set(Math.max(length / 9, 0.12), 0.2);
+    c.offset.set(offset, offset * 0.37);
+    c.needsUpdate = true;
+    return c;
+  };
+  const color = woodMaps ? new THREE.Color(tint, tint * 0.9, tint * 0.74) : new THREE.Color(tint, tint * 0.99, tint * 0.97);
+  if (!woodMaps) return new THREE.MeshStandardMaterial({ map: tile(fallbackWood), color, roughness: 0.65 });
+  return new THREE.MeshStandardMaterial({
+    map: tile(woodMaps.albedo),
+    normalMap: tile(woodMaps.normal),
+    normalScale: new THREE.Vector2(0.6, 0.6),
+    roughnessMap: tile(woodMaps.rough),
+    color,
+  });
+}
 
 const ball = new THREE.Mesh(
   new THREE.SphereGeometry(BALL_R, 48, 32),
@@ -153,20 +170,13 @@ function ring(half, thick) {
   ];
 }
 
-function boxMaterial(length) {
-  const map = boxTex.clone();
-  map.repeat.set(length / 10, 1);
-  map.needsUpdate = true;
-  return new THREE.MeshStandardMaterial({ map, roughness: 0.65 });
-}
-
 function disposeGroup(group) {
   group.traverse((o) => {
     if (!o.isMesh) return;
     o.geometry.dispose();
     for (const m of [].concat(o.material)) {
       if (blockMats.includes(m)) continue;
-      m.map?.dispose();
+      for (const key of ['map', 'normalMap', 'roughnessMap']) m[key]?.dispose();
       m.dispose();
     }
   });
@@ -175,7 +185,7 @@ function disposeGroup(group) {
 
 function makeKnob() {
   const knob = new THREE.Group();
-  const mat = boxMaterial(2);
+  const mat = woodMaterial(2);
   const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.4, 20), mat);
   shaft.rotation.x = Math.PI / 2;
   shaft.position.z = 0.2;
@@ -214,13 +224,26 @@ function buildLevel(level) {
   const boardTex = makeBoardTexture({
     W, H, ppu, cell: CELL, path, holes, goal, holeR: HOLE_R,
     startLabel: toW(maze.startLabel), goalLabel: toW(maze.goalLabel),
+    wood: boardMaps?.albedo.image,
   }, anisotropy);
-  boardTex.repeat.set(1 / W, 1 / H);
-  boardTex.offset.set(0.5, 0.5);
+  // The top face's UVs are shape coordinates; map the board's extent to 0..1.
+  const fit = (t) => {
+    t.repeat.set(1 / W, 1 / H);
+    t.offset.set(0.5, 0.5);
+    return t;
+  };
+  const top = boardMaps
+    ? new THREE.MeshStandardMaterial({
+      map: fit(boardTex),
+      normalMap: fit(boardMaps.normal.clone()),
+      normalScale: new THREE.Vector2(0.4, 0.4),
+      roughnessMap: fit(boardMaps.rough.clone()),
+    })
+    : new THREE.MeshStandardMaterial({ map: fit(boardTex), roughness: 0.6 });
   const surface = new THREE.Mesh(
     new THREE.ExtrudeGeometry(shape, { depth: BOARD_T, bevelEnabled: false, curveSegments: 28 }),
     [
-      new THREE.MeshStandardMaterial({ map: boardTex, roughness: 0.6 }),
+      top,
       new THREE.MeshStandardMaterial({ color: 0x7a5a38, roughness: 0.9 }),
     ],
   );
@@ -241,21 +264,21 @@ function buildLevel(level) {
   });
   for (const b of ring({ x: W / 2, z: H / 2 }, RIM_T)) {
     boxes.push(b);
-    slab(board, b, -BOARD_T, RIM_H, boxMaterial(W), 0.04);
+    slab(board, b, -BOARD_T, RIM_H, woodMaterial(W), 0.04);
   }
   boardPivot.add(board);
 
   // ---- Gimbal frame (tilts on one axis) ----
   const frame = new THREE.Group();
   const fIn = { x: W / 2 + RIM_T + GAP, z: H / 2 + RIM_T + GAP };
-  for (const b of ring(fIn, GIMBAL_T)) slab(frame, b, -BOARD_T - 0.3, 0.2, boxMaterial(W), 0.05);
+  for (const b of ring(fIn, GIMBAL_T)) slab(frame, b, -BOARD_T - 0.3, 0.2, woodMaterial(W), 0.05);
   gimbal.add(frame);
 
   // ---- Outer box (static) ----
   const box = new THREE.Group();
   const bIn = { x: fIn.x + GIMBAL_T + GAP, z: fIn.z + GIMBAL_T + GAP };
   const OX = bIn.x + BOX_T, OZ = bIn.z + BOX_T;
-  for (const b of ring(bIn, BOX_T)) slab(box, b, BOX_BOTTOM, BOX_TOP, boxMaterial(2 * OX), 0.07);
+  for (const b of ring(bIn, BOX_T)) slab(box, b, BOX_BOTTOM, BOX_TOP, woodMaterial(2 * OX), 0.07);
   // Dark interior so holes read as holes.
   const inside = new THREE.Mesh(
     new THREE.PlaneGeometry(bIn.x * 2, bIn.z * 2),
@@ -275,7 +298,7 @@ function buildLevel(level) {
   game.knobs = { front, side };
 
   // Ball-return tray at the front corner.
-  const tray = slab(box, { minx: OX - 2.0, maxx: OX - 0.3, minz: OZ, maxz: OZ + 1.0 }, BOX_BOTTOM, BOX_BOTTOM + 0.7, boxMaterial(2), 0.08);
+  const tray = slab(box, { minx: OX - 2.0, maxx: OX - 0.3, minz: OZ, maxz: OZ + 1.0 }, BOX_BOTTOM, BOX_BOTTOM + 0.7, woodMaterial(2), 0.08);
   const dish = new THREE.Mesh(
     new THREE.CircleGeometry(0.42, 32),
     new THREE.MeshStandardMaterial({ color: 0xc9a273, roughness: 0.8 }),
@@ -619,4 +642,20 @@ renderer.setAnimationLoop(() => {
   renderer.render(scene, camera);
 });
 
-buildLevel(game.level);
+async function init() {
+  try {
+    const maps = await loadWoodMaps(import.meta.env.BASE_URL, anisotropy);
+    woodMaps = maps.wood;
+    boardMaps = maps.board;
+  } catch (err) {
+    console.warn('Wood textures failed to load; using procedural wood.', err);
+    fallbackWood = makeWoodTexture(512, 96, { light: [230, 196, 142], dark: [204, 162, 104], seed: 7, scale: 1.2 }, anisotropy);
+  }
+  blockMats = [1, 0.97, 0.93, 1.03].map((tint, i) => woodMaterial(WALL_LEN * CELL, { tint, offset: i * 0.29 }));
+  buildLevel(game.level);
+  const play = $('btn-play');
+  play.disabled = false;
+  play.textContent = 'Play';
+}
+
+init();
