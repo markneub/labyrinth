@@ -34,8 +34,10 @@ const MAX_SPEED = 22;
 const SUBSTEPS = 6;
 
 const CAMERA_ANGLE = THREE.MathUtils.degToRad(24);
-const ZOOM_MAX = 1.7;         // magnification toward the ball at full tilt
-const ZOOM_RATE = 2.5;        // per second; slow enough not to pump on small wobbles
+const ZOOM_MAX = 1.7;         // magnification toward the ball while it rolls
+const ZOOM_RATE = 2.5;        // per second; how quickly the camera eases in and out
+const MOVING_SPEED = 0.4;     // units/s; faster than this counts as rolling
+const STILL_DELAY = 0.5;      // seconds near-still before pulling back out
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -375,14 +377,15 @@ function fitCamera() {
 }
 addEventListener('resize', fitCamera);
 
-// Lean in toward the ball the harder the board is tilted; ease back out as it levels.
-const zoom = { amount: 0, focus: new THREE.Vector3(), ball: new THREE.Vector3() };
+// Close in on the ball while it rolls; pull back to the whole board once it
+// has settled, so a brief stop against a block doesn't make the view pump.
+const zoom = { amount: 0, still: Infinity, focus: new THREE.Vector3(), ball: new THREE.Vector3() };
 function updateCamera(dt) {
   const cam = game.cam;
   if (!cam) return;
-  const lean = Math.hypot(input.tilt.x, input.tilt.z) / MAX_TILT;
-  const active = game.state === 'play' || game.state === 'fall';
-  const want = active ? THREE.MathUtils.smoothstep(lean, 0.15, 0.8) : 0;
+  const rolling = game.state === 'fall' || (game.state === 'play' && Math.hypot(game.v.x, game.v.z) > MOVING_SPEED);
+  zoom.still = rolling ? 0 : zoom.still + dt;
+  const want = zoom.still < STILL_DELAY ? 1 : 0;
   zoom.amount += (want - zoom.amount) * (1 - Math.exp(-dt * ZOOM_RATE));
   const f = 1 + (ZOOM_MAX - 1) * zoom.amount;
   // Follow the ball, but stop short of showing past the board's edges.
