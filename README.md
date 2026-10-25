@@ -40,6 +40,17 @@ none lost or stuck); `node tools/plot_machine.mjs out.svg` draws the tracks
 from above and the front. `?view=x,y,z,tx,ty,tz` starts the camera at a given
 spot; the corner shows the frame rate.
 
+**AR on iPhone/iPad:** the cube "AR" button (shown only in Safari on iOS)
+opens `public/machine.usdz`, a still model of the machine, in AR Quick Look,
+so you can stand it on a real table at full size and walk round it. To rebuild
+it after changing the machine (needs `pip install usd-core pillow`):
+
+```sh
+npx vite build && npx vite preview --port 4173 &
+node tools/export_usdz.cjs http://localhost:4173/ public/machine.usdz
+python3 tools/pack_usdz.py public/machine.usdz   # binary geometry, JPEG textures, validation
+```
+
 Code: `src/machine/` (`path.js` curves and the turtle, `physics.js`,
 `layout.js` the machine's design, `sim.js` the running machine, `supports.js`,
 `scene.js` meshes (static wood merged into a few dozen draw calls), `sound.js`,

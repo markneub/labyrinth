@@ -14,6 +14,8 @@
   <header id="title">
     <h1>Marble Machine</h1>
     <div class="buttons">
+    <!-- AR Quick Look (iPhone/iPad): Safari wants the link's only child to be an image -->
+    <a id="btn-ar" class="pill ar" rel="ar" href="machine.usdz" title="View on your table in AR" hidden><img alt="View in AR" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 24'%3E%3Cg fill='none' stroke='%233b2a1d' stroke-width='1.8' stroke-linejoin='round'%3E%3Cpath d='M12 3l8 4.5v9L12 21l-8-4.5v-9z'/%3E%3Cpath d='M4 7.5l8 4.5 8-4.5M12 12v9'/%3E%3C/g%3E%3Ctext x='25' y='17' font-family='Georgia,serif' font-size='13' fill='%233b2a1d'%3EAR%3C/text%3E%3C/svg%3E"></a>
     <button id="btn-speed" class="pill" aria-label="Playback speed" title="Slow motion">½×</button>
     <button id="btn-sound" class="icon" aria-label="Sound" aria-pressed="false" title="Sound">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path class="waves" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/><path class="mute" d="M16 9l6 6M22 9l-6 6"/></svg>

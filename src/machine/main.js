@@ -129,6 +129,9 @@ speedBtn.addEventListener('click', () => {
 });
 showSpeed();
 
+// ---- AR: Safari on iPhone and iPad opens the still model (public/machine.usdz) in AR Quick Look ----
+if (document.createElement('a').relList.supports?.('ar')) $('btn-ar').hidden = false;
+
 // ---- Sound: wooden knocks, glass clacks, the rumble of rolling ----
 const sound = new MachineSound();
 const soundBtn = $('btn-sound');
@@ -172,6 +175,13 @@ async function start() {
   // Warm the machine up first so marbles are already spread around it.
   for (let i = 0; i < 600; i++) machine.update(1 / 60);
   machine.events.length = 0;
+
+  // ?export=usdz: build the still AR model (tools/export_usdz.cjs saves it).
+  if (new URLSearchParams(location.search).get('export') === 'usdz') {
+    updateMeshes(machine, meshes, 0);
+    const { exportUSDZ } = await import('./export.js');
+    window.__usdz = await exportUSDZ(meshes, meshes.marbleMeshes.slice(0, MARBLES));
+  }
 }
 
 start().catch((err) => {

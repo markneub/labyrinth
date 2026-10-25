@@ -51,7 +51,11 @@ html, body {
 
 .buttons { display: flex; gap: 8px; pointer-events: auto; }
 
-button.pill {
+a.pill.ar { display: flex; align-items: center; justify-content: center; box-sizing: border-box; }
+a.pill.ar[hidden] { display: none; }
+a.pill.ar img { height: 22px; width: 44px; }
+
+button.pill, a.pill {
   height: 40px;
   min-width: 52px;
   padding: 0 12px;
