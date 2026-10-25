@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#15100c">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Labyrinth</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <header id="hud">
+    <div class="stats">
+      <span id="hud-level">Level 1</span>
+      <span id="hud-time">0:00.0</span>
+      <span id="hud-falls">0 falls</span>
+    </div>
+    <div class="actions">
+      <button id="btn-calibrate" class="icon" aria-label="Set current tilt as level" title="Set current tilt as level">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>
+      </button>
+      <button id="btn-restart" class="icon" aria-label="Restart level" title="Restart level">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 3v5h5"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <div id="overlay-start" class="overlay">
+    <div class="card">
+      <h1>Labyrinth</h1>
+      <p>Tilt your phone to roll the steel ball from <b>START</b> to <b>FINISH</b>. Mind the holes.</p>
+      <p class="hint">Hold the phone the way you want "level" to feel, then tap Play.</p>
+      <button id="btn-play" class="primary">Play</button>
+      <p id="start-level" class="note"></p>
+      <p id="start-note" class="note warn"></p>
+    </div>
+  </div>
+
+  <div id="overlay-win" class="overlay hidden">
+    <div class="card">
+      <h2>Made it!</h2>
+      <p id="win-time" class="big"></p>
+      <p id="win-detail" class="note"></p>
+      <div class="row">
+        <button id="btn-replay">Replay</button>
+        <button id="btn-next" class="primary">Next level</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
