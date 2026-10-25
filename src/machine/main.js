@@ -149,7 +149,18 @@ async function start() {
   $('loading').classList.add('gone');
 
   const clock = new THREE.Clock();
+  // Frame rate readout, refreshed twice a second.
+  const fpsEl = $('fps');
+  let frames = 0, since = performance.now();
   renderer.setAnimationLoop(() => {
+    const now = performance.now();
+    frames++;
+    if (now - since >= 500) {
+      const fps = (frames * 1000) / (now - since);
+      fpsEl.textContent = `${fps.toFixed(0)} fps · ${(1000 / fps).toFixed(1)} ms`;
+      frames = 0;
+      since = now;
+    }
     const dt = Math.min(clock.getDelta(), 0.05);
     const scaled = dt * SPEEDS[speed][0];
     machine.update(scaled);

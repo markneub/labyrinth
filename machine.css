@@ -104,6 +104,16 @@ button.icon svg {
   pointer-events: none;
 }
 
+.fps {
+  position: fixed;
+  left: calc(env(safe-area-inset-left) + 10px);
+  bottom: calc(env(safe-area-inset-bottom) + 8px);
+  margin: 0;
+  font: 12px/1 ui-monospace, Menlo, Consolas, monospace;
+  color: rgba(59, 42, 26, 0.7);
+  pointer-events: none;
+}
+
 .hint { bottom: calc(env(safe-area-inset-bottom) + 24px); }
 .loading { top: 50%; }
 .gone { opacity: 0; }
