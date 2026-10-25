@@ -1,7 +1,12 @@
 name: Deploy to GitHub Pages
 
+# Every push (to any branch) or branch deletion rebuilds the whole site:
+# the default branch at the root and each other branch under /<branch>/
+# (see tools/build_site.sh). The github-pages environment must allow
+# deployments from all branches.
 on:
   push:
+  delete:
   workflow_dispatch:
 
 permissions:
@@ -9,6 +14,7 @@ permissions:
   pages: write
   id-token: write
 
+# Each run builds every branch, so only the newest one matters.
 concurrency:
   group: pages
   cancel-in-progress: true
@@ -18,19 +24,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - run: npm run build
+      - run: tools/build_site.sh site
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: site
 
   deploy:
-    # Every branch gets a build check; only the default branch is published.
-    if: github.ref_name == github.event.repository.default_branch
     needs: build
     runs-on: ubuntu-latest
     environment:

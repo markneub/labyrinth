@@ -26,10 +26,22 @@ example `npx vite --host` behind a tunnel), or just push and use the Pages build
 
 ## Deploy
 
-`.github/workflows/pages.yml` builds every push and publishes the default
-branch to GitHub Pages. In the repository settings, set **Pages → Source** to
-**GitHub Actions** once. `base: './'` in `vite.config.js` keeps asset paths
-relative, so the site works from the `/labyrinth/` sub-path.
+Every push, to any branch, rebuilds and publishes the whole site
+(`.github/workflows/pages.yml` runs `tools/build_site.sh`):
+
+- the default branch at https://markneub.github.io/labyrinth/
+- every other branch at `/labyrinth/<branch>/`, with slashes turned into
+  dashes (`marbles/glass` → `/labyrinth/marbles-glass/`)
+- a list of them all at https://markneub.github.io/labyrinth/branches/
+
+Branch builds show their name on the start screen and keep their own saved
+progress and best times. Deleting a branch drops it at the next deploy.
+`base: './'` in `vite.config.js` keeps asset paths relative, so a build works
+from any of these paths.
+
+One-time repository settings: **Pages → Source** set to **GitHub Actions**,
+and **Environments → github-pages → Deployment branches** allowing all
+branches.
 
 ## Textures
 

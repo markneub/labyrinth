@@ -42,12 +42,14 @@ const STILL_DELAY = 0.5;      // seconds near-still before pulling back out
 const $ = (id) => document.getElementById(id);
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
+// Branch builds share the site's origin, so each keeps its saves under its own prefix.
+const SAVE_PREFIX = __SAVE_NAMESPACE__ ? `labyrinth.${__SAVE_NAMESPACE__}.` : 'labyrinth.';
 const store = {
   get(k, fallback) {
-    try { const v = localStorage.getItem(k); return v == null ? fallback : JSON.parse(v); } catch { return fallback; }
+    try { const v = localStorage.getItem(SAVE_PREFIX + k); return v == null ? fallback : JSON.parse(v); } catch { return fallback; }
   },
   set(k, v) {
-    try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage unavailable */ }
+    try { localStorage.setItem(SAVE_PREFIX + k, JSON.stringify(v)); } catch { /* storage unavailable */ }
   },
 };
 
@@ -133,7 +135,7 @@ const input = new TiltInput(canvas, MAX_TILT);
 const sfx = new Sfx();
 
 const game = {
-  level: store.get('labyrinth.level', 1),
+  level: store.get('level', 1),
   layout: null,
   cam: null,         // fitted framing: { dir, target, dist, halfX, halfZ }
   groups: [],
@@ -462,11 +464,11 @@ function updateFall(dt) {
 function win() {
   game.state = 'won';
   game.fall = null;
-  const key = `labyrinth.best.${game.level}`;
+  const key = `best.${game.level}`;
   const best = store.get(key, null);
   const isBest = best == null || game.time < best;
   if (isBest) store.set(key, game.time);
-  store.set('labyrinth.level', Math.max(store.get('labyrinth.level', 1), game.level + 1));
+  store.set('level', Math.max(store.get('level', 1), game.level + 1));
   $('win-time').textContent = fmtTime(game.time);
   $('win-detail').textContent =
     `${game.falls} ${game.falls === 1 ? 'fall' : 'falls'} · ` +
@@ -585,6 +587,10 @@ if (touchDevice && !isSecureContext) {
   $('start-note').textContent = 'Tilt controls need HTTPS. Open this page over https:// to use the motion sensor.';
 }
 $('start-level').textContent = game.level > 1 ? `Continue at level ${game.level}` : '';
+if (__BRANCH_LABEL__) {
+  $('start-branch').textContent = `Branch: ${__BRANCH_LABEL__}`;
+  document.title = `Labyrinth · ${__BRANCH_LABEL__}`;
+}
 
 $('btn-play').addEventListener('click', async () => {
   sfx.init();
