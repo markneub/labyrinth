@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { R, RAIL_R, GAUGE, RIDE } from './physics.js';
 import { chainPoint } from './sim.js';
 import { POST_R, TIE_DROP } from './supports.js';
@@ -49,7 +50,7 @@ class PolyCurve extends THREE.Curve {
 const basisMatrix = (x, y, z, pos) => new THREE.Matrix4().makeBasis(x, y, z).setPosition(pos);
 
 /** A dowel between two points. */
-function dowel(a, b, radius, material, segments = 12) {
+function dowel(a, b, radius, material, segments = 8) {
   const len = a.distanceTo(b);
   const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, len, segments), material);
   mesh.position.lerpVectors(a, b, 0.5);
@@ -126,18 +127,19 @@ export function buildMeshes(layout, supports, maps, anisotropy) {
   for (const set of Object.values(maps)) for (const t of Object.values(set)) t.anisotropy = anisotropy;
 
   // ---- Base ----
-  const base = shadow(new THREE.Mesh(new RoundedBoxGeometry(0.86, 0.028, 0.6, 3, 0.008), teak(0.86, 0.6)));
-  base.position.set(0, -0.014, 0);
+  const base = shadow(new THREE.Mesh(new RoundedBoxGeometry(1.24, 0.03, 0.84, 3, 0.008), teak(1.24, 0.84)));
+  base.position.set(0, -0.015, 0);
   group.add(base);
 
   // ---- Rails, ties and end blocks ----
   const frame = { t: new THREE.Vector3(), l: new THREE.Vector3(), u: new THREE.Vector3() };
   const ties = [];
   const blocks = [];
+  const chimeBars = [];
   for (const track of layout.tracks) {
     const { path } = track;
     const left = [], right = [];
-    for (let s = 0; s <= path.length + 1e-6; s += 0.003) {
+    for (let s = 0; s <= path.length + 1e-6; s += 0.008) {
       const p = path.at(Math.min(s, path.length));
       path.frame(Math.min(s, path.length), frame);
       const c = p.clone().addScaledVector(frame.u, -RIDE);
@@ -145,7 +147,7 @@ export function buildMeshes(layout, supports, maps, anisotropy) {
       right.push(c.clone().addScaledVector(frame.l, -GAUGE / 2));
     }
     for (const pts of [left, right]) {
-      const geo = new THREE.TubeGeometry(new PolyCurve(pts), pts.length, RAIL_R, 8, false);
+      const geo = new THREE.TubeGeometry(new PolyCurve(pts), pts.length, RAIL_R, 6, false);
       group.add(shadow(new THREE.Mesh(geo, maple(path.length, 0.02))));
     }
     for (let s = 0.012; s < path.length; s += 0.028) {
@@ -161,11 +163,28 @@ export function buildMeshes(layout, supports, maps, anisotropy) {
     }
     if (track.end.wall) {
       path.frame(path.length, frame);
-      const pos = path.at(path.length).addScaledVector(frame.t, R + 0.004).addScaledVector(frame.u, 0.003);
-      blocks.push(basisMatrix(frame.l, frame.u, frame.t, pos));
+      if (track.end.chime !== undefined) {
+        // A tuned brass bar across the end, at the height the marble strikes it.
+        const pos = path.at(path.length).addScaledVector(frame.t, R + 0.0045);
+        chimeBars.push({ m: basisMatrix(frame.u, frame.l, frame.t, pos), pos, l: frame.l.clone() });
+      } else {
+        const pos = path.at(path.length).addScaledVector(frame.t, R + 0.004).addScaledVector(frame.u, 0.003);
+        blocks.push(basisMatrix(frame.l, frame.u, frame.t, pos));
+      }
     }
   }
-  const tieMesh = shadow(new THREE.InstancedMesh(new RoundedBoxGeometry(GAUGE + 2 * RAIL_R + 0.005, 0.0028, 0.006, 1, 0.0008), oak(0.03, 0.01), ties.length));
+  // Chime bars hang between two little oak posts.
+  const brass = new THREE.MeshStandardMaterial({ color: 0xc9a24a, metalness: 1, roughness: 0.28 });
+  for (const c of chimeBars) {
+    const bar = shadow(new THREE.Mesh(new THREE.CylinderGeometry(0.0042, 0.0042, GAUGE + 0.022, 16), brass));
+    bar.applyMatrix4(c.m);
+    group.add(bar);
+    for (const side of [-1, 1]) {
+      const end = c.pos.clone().addScaledVector(c.l, side * (GAUGE / 2 + 0.013));
+      group.add(shadow(dowel(end.clone().setY(end.y - RIDE - 0.006), end.clone().setY(end.y + 0.008), 0.0022, oak(0.03, 0.01))));
+    }
+  }
+  const tieMesh = shadow(new THREE.InstancedMesh(new THREE.BoxGeometry(GAUGE + 2 * RAIL_R + 0.005, 0.0028, 0.006), oak(0.03, 0.01), ties.length));
   ties.forEach((m, i) => tieMesh.setMatrixAt(i, m));
   group.add(tieMesh);
   const blockMesh = shadow(new THREE.InstancedMesh(new RoundedBoxGeometry(GAUGE + 2 * RAIL_R + 0.004, 0.016, 0.006, 2, 0.0015), oak(0.03, 0.03), blocks.length));
@@ -198,12 +217,15 @@ export function buildMeshes(layout, supports, maps, anisotropy) {
   bracket.position.set(beam.to.x, beam.to.y, (beam.to.z + layout.spiral.z) / 2);
   group.add(bracket);
   for (const h of supports.hangers) group.add(shadow(dowel(h.from, h.to, 0.0018, oak(0.05, 0.02))));
-  const { spiral } = layout;
-  const towerPost = shadow(dowel(new THREE.Vector3(spiral.x, 0, spiral.z), new THREE.Vector3(spiral.x, supports.postTop, spiral.z), 0.011, walnut(0.6, 0.06), 24));
-  group.add(towerPost);
-  const finial = shadow(new THREE.Mesh(new THREE.SphereGeometry(0.016, 24, 16), walnut(0.05, 0.05)));
-  finial.position.set(spiral.x, supports.postTop + 0.012, spiral.z);
-  group.add(finial);
+  // Central posts for the helices, each topped with a turned finial; the
+  // tower's post rises to carry the beam.
+  layout.helixPosts.forEach((h, i) => {
+    const top = i === 0 ? Math.max(h.top, supports.beamY + 0.02) : h.top;
+    group.add(shadow(dowel(new THREE.Vector3(h.x, 0, h.z), new THREE.Vector3(h.x, top, h.z), h.radius, walnut(0.6, 0.06), 24)));
+    const finial = shadow(new THREE.Mesh(new THREE.SphereGeometry(h.radius * 1.45, 24, 16), walnut(0.05, 0.05)));
+    finial.position.set(h.x, top + h.radius, h.z);
+    group.add(finial);
+  });
   for (const a of supports.arms) group.add(shadow(dowel(a.from, a.to, 0.003, oak(0.1, 0.02))));
 
   // ---- Funnel bowls ----
@@ -249,8 +271,9 @@ export function buildMeshes(layout, supports, maps, anisotropy) {
     const away = Math.atan2(out.z, out.x) + Math.PI;
     for (let k = 0; k < 3; k++) {
       const a = away + (k * 2 * Math.PI) / 3;
-      const top = new THREE.Vector3(f.cx + Math.cos(a) * (f.radius - 0.004), f.rimY - 0.012, f.cz + Math.sin(a) * (f.radius - 0.004));
-      const foot = new THREE.Vector3(f.cx + Math.cos(a) * (f.radius + 0.012), 0, f.cz + Math.sin(a) * (f.radius + 0.012));
+      // From the rim's lip, splayed outwards: clear of the corkscrew winding underneath.
+      const top = new THREE.Vector3(f.cx + Math.cos(a) * (f.radius + 0.006), f.rimY - 0.006, f.cz + Math.sin(a) * (f.radius + 0.006));
+      const foot = new THREE.Vector3(f.cx + Math.cos(a) * (f.radius + 0.03), 0, f.cz + Math.sin(a) * (f.radius + 0.03));
       group.add(shadow(dowel(foot, top, POST_R, postMat)));
     }
   }
@@ -295,6 +318,7 @@ export function buildMeshes(layout, supports, maps, anisotropy) {
   // Its own little stand.
   const stand = shadow(dowel(new THREE.Vector3(big.position.x, 0, lift.z + 0.03), new THREE.Vector3(big.position.x, big.position.y, lift.z + 0.03), 0.005, postMat));
   liftGroup.add(pinion, big, bigAxle, crank, stand);
+  for (const o of [...sprockets, pinion, big, crank]) o.userData.dynamic = true;
   // A board behind the chain, and guide dowels that keep marbles on the paddles.
   const back = shadow(new THREE.Mesh(new RoundedBoxGeometry(0.004, lift.yTop - lift.yBottom + 0.06, 0.04, 1, 0.001), oak(0.6, 0.04)));
   back.position.set(lift.x, (lift.yTop + lift.yBottom) / 2, lift.z);
@@ -310,6 +334,7 @@ export function buildMeshes(layout, supports, maps, anisotropy) {
   links.castShadow = true;
   const paddleMesh = shadow(new THREE.InstancedMesh(new RoundedBoxGeometry(0.02, 0.003, 0.008, 1, 0.001), oak(0.02, 0.01), lift.paddles));
   liftGroup.add(links, paddleMesh);
+  links.userData.dynamic = paddleMesh.userData.dynamic = true;
 
   // ---- Switch flippers ----
   const flippers = layout.switches.map((sw) => {
@@ -320,13 +345,16 @@ export function buildMeshes(layout, supports, maps, anisotropy) {
     pivot.add(blade);
     const pin = shadow(dowel(new THREE.Vector3(0, -TIE_DROP, 0), new THREE.Vector3(0, 0.012, 0), 0.0018, walnut(0.02, 0.01)));
     pivot.add(pin);
-    pivot.rotation.y = Math.PI;  // blade points back along -dir
+    // Blade trails back along the incoming track: local +x points the way marbles travel.
+    const base = Math.atan2(-sw.dir.z, sw.dir.x);
+    pivot.rotation.y = base;
     group.add(pivot);
-    return { sw, pivot, angle: 0 };
+    pivot.userData.dynamic = true;
+    return { sw, pivot, base, angle: 0 };
   });
 
   // ---- Marbles ----
-  const marbleGeo = new THREE.SphereGeometry(R, 32, 20);
+  const marbleGeo = new THREE.SphereGeometry(R, 24, 16);
   const hues = [8, 32, 200, 140, 280, 50, 220, 340, 170, 100, 260, 20];
   const marbleMeshes = hues.map((h) => {
     const m = new THREE.Mesh(marbleGeo, new THREE.MeshPhysicalMaterial({
@@ -340,7 +368,53 @@ export function buildMeshes(layout, supports, maps, anisotropy) {
     return m;
   });
 
-  return { group, links, paddleMesh, sprockets, pinion, big, crank, flippers, marbleMeshes, linkCount, lift };
+  const calls = mergeStatic(group);
+  return { group, links, paddleMesh, sprockets, pinion, big, crank, flippers, marbleMeshes, linkCount, lift, calls };
+}
+
+/**
+ * Merge every static mesh that shares a wood (or material) into one mesh, so
+ * the whole machine draws in a few dozen calls rather than hundreds. Each
+ * part's texture repeat is baked into its UVs first, so parts cut to
+ * different lengths can share one material.
+ */
+function mergeStatic(group) {
+  group.updateMatrixWorld(true);
+  const buckets = new Map();
+  const drop = [];
+  group.traverse((o) => {
+    if (o.userData.dynamic) return;
+    for (let p = o.parent; p; p = p.parent) if (p.userData.dynamic) return;
+    if (!o.isMesh || o.isInstancedMesh || Array.isArray(o.material) || !o.geometry.index) return;
+    const m = o.material;
+    const key = m.map ? `${m.map.source.uuid}:${m.side}:${m.color.getHexString()}` : m.uuid;
+    const g = o.geometry.clone().applyMatrix4(o.matrixWorld);
+    if (m.map) {
+      const uv = g.attributes.uv, { x, y } = m.map.repeat;
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * x, uv.getY(i) * y);
+    }
+    for (const name of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(name)) g.deleteAttribute(name);
+    if (!buckets.has(key)) buckets.set(key, { material: m, geos: [] });
+    buckets.get(key).geos.push(g);
+    drop.push(o);
+  });
+  for (const o of drop) o.removeFromParent();
+  for (const { material, geos } of buckets.values()) {
+    let mat = material;
+    if (material.map) {
+      mat = material.clone();
+      for (const k of ['map', 'normalMap', 'roughnessMap']) {
+        if (!material[k]) continue;
+        mat[k] = material[k].clone();
+        mat[k].repeat.set(1, 1);
+        mat[k].needsUpdate = true;
+      }
+    }
+    const mesh = new THREE.Mesh(mergeGeometries(geos), mat);
+    mesh.castShadow = mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+  return buckets.size;
 }
 
 const mat4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s1 = new THREE.Vector3(1, 1, 1), v3 = new THREE.Vector3();
@@ -383,6 +457,6 @@ export function updateMeshes(machine, meshes, dt) {
   for (const f of meshes.flippers) {
     const target = f.sw.state ? 0.28 : -0.28;
     f.angle += (target - f.angle) * Math.min(1, dt * 18);
-    f.pivot.rotation.y = Math.PI + f.angle;
+    f.pivot.rotation.y = f.base + f.angle;
   }
 }

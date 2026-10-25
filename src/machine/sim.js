@@ -74,7 +74,8 @@ export class Machine {
       this.marbles.push(m);
     }
     // Any that don't fit wait further back up the return run.
-    const back = layout.tracks.find((t) => t.end.to === home && t.name === 'return run');
+    // (the longest track feeding the lift's last piece)
+    const back = layout.tracks.filter((t) => t.end.to === home).sort((a, b) => b.path.length - a.path.length)[0];
     let spill = 0;
     for (const m of this.marbles) {
       if (m.s > 0 || m === this.marbles[0]) continue;
@@ -186,7 +187,9 @@ export class Machine {
         path.at(path.length, m.p);
         path.tangent(path.length, m.vel).multiplyScalar(m.v);
         if (end.wall) {
-          this.events.push({ kind: 'stop', p: m.p.clone(), strength: m.v });
+          this.events.push(end.chime !== undefined
+            ? { kind: 'chime', note: end.chime, p: m.p.clone(), strength: m.v }
+            : { kind: 'stop', p: m.p.clone(), strength: m.v });
           bounceOffWall(m.vel);
         }
         return;

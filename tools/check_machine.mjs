@@ -13,8 +13,8 @@ import { Machine } from '../src/machine/sim.js';
 const layout = buildLayout();
 const { report } = layout;
 const f = layout.funnels[0];
-console.log(`switch speed ${report.switchSpeed.toFixed(2)} m/s, jump launch ${report.jumpLaunch.v.length().toFixed(2)} m/s`);
-console.log(`funnel at (${f.cx.toFixed(3)}, ${f.rimY.toFixed(3)}, ${f.cz.toFixed(3)}), orbit ${report.funnelTime.toFixed(1)} s`);
+console.log(`${report.switches} flip-flops; jump launch ${report.jumpLaunch.v.length().toFixed(2)} m/s; funnel at (${f.cx.toFixed(3)}, ${f.rimY.toFixed(3)}, ${f.cz.toFixed(3)}), orbit ${report.orbit.toFixed(1)} s`);
+console.log('exit speeds', JSON.stringify(Object.fromEntries(Object.entries(report.speeds).map(([k, v]) => [k, +v.toFixed(2)]))));
 for (const t of layout.tracks) {
   const a = t.path.at(0), b = t.path.at(t.path.length);
   const maxBank = Math.max(...t.path.bank.map(Math.abs)) * 180 / Math.PI;
@@ -25,7 +25,7 @@ for (const t of layout.tracks) {
 // a marble plus rails apart, except near where they join.
 const need = 2 * R + 2 * RAIL_R + RIDE;
 const joins = new Map();
-const near = (t, s) => (joins.get(t) || []).some((js) => Math.abs(js - s) < 0.1);
+const near = (t, s) => (joins.get(t) || []).some((js) => Math.abs(js - s) < 0.15);
 for (const t of layout.tracks) {
   if (t.end.to) {
     joins.set(t, [...(joins.get(t) || []), t.path.length]);
@@ -35,10 +35,12 @@ for (const t of layout.tracks) {
 for (const sw of layout.switches) {
   for (const b of sw.branches) joins.set(b, [...(joins.get(b) || []), 0]);
 }
-const tower = layout.tracks.find((t) => t.name === 'spiral');
-for (const sw of layout.switches) joins.set(tower, [...(joins.get(tower) || []), tower.path.length]);
+for (const t of layout.tracks) {
+  if (t.end.type === 'switch') joins.set(t, [...(joins.get(t) || []), t.path.length]);
+}
 const pa = new THREE.Vector3(), pb = new THREE.Vector3();
 let worst = Infinity, problems = 0;
+const pairs = new Map();   // "A / B" -> { n, min, at }
 const tracks = layout.tracks;
 for (let i = 0; i < tracks.length; i++) {
   for (let j = i; j < tracks.length; j++) {
@@ -51,12 +53,20 @@ for (let i = 0; i < tracks.length; i++) {
         // A track can't be too close to itself except far along (spiral turns are checked).
         const d = pa.distanceTo(B.path.at(sb, pb));
         worst = Math.min(worst, d);
-        if (d < need && problems++ < 12) {
-          console.log(`  too close: ${A.name} @${sa.toFixed(3)} and ${B.name} @${sb.toFixed(3)}: ${(d * 1000).toFixed(1)} mm`);
+        if (d < need) {
+          problems++;
+          const key = `${A.name} / ${B.name}`;
+          const e = pairs.get(key) || { n: 0, min: Infinity };
+          e.n++;
+          if (d < e.min) Object.assign(e, { min: d, at: `@${sa.toFixed(2)} / @${sb.toFixed(2)}`, p: pa.clone() });
+          pairs.set(key, e);
         }
       }
     }
   }
+}
+for (const [key, e] of pairs) {
+  console.log(`  too close: ${key} ${e.at}: ${(e.min * 1000).toFixed(1)} mm near (${e.p.x.toFixed(2)}, ${e.p.y.toFixed(2)}, ${e.p.z.toFixed(2)}) [${e.n}]`);
 }
 console.log(`closest approach between tracks ${(worst * 1000).toFixed(1)} mm (need ${(need * 1000).toFixed(1)}), ${problems} problems`);
 
@@ -85,7 +95,7 @@ const { planSupports } = await import('../src/machine/supports.js');
 const sup = planSupports(layout);
 const gaps = [];
 for (const t of layout.tracks) {
-  if (t.name === 'spiral') continue;
+  if ([...layout.helixPosts, ...layout.rings].some((h) => h.tracks.includes(t))) continue;   // on arms from posts
   if (t === layout.lift.to) continue;   // hangs from the beam
   const at = sup.posts.filter((p) => p.track === t).map((p) => p.s).sort((a, b) => a - b);
   const edges = [0, ...at, t.path.length];

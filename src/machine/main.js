@@ -31,7 +31,7 @@ const sun = new THREE.DirectionalLight(0xfff1dd, 2.2);
 sun.position.set(-0.8, 1.6, 1.0);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-Object.assign(sun.shadow.camera, { left: -0.6, right: 0.6, top: 0.6, bottom: -0.6, near: 0.5, far: 4 });
+Object.assign(sun.shadow.camera, { left: -0.85, right: 0.85, top: 0.85, bottom: -0.85, near: 0.5, far: 4 });
 sun.shadow.bias = -0.0003;
 sun.shadow.normalBias = 0.002;
 scene.add(sun);
@@ -46,7 +46,7 @@ scene.add(floor);
 const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 20);
 camera.position.set(0.62, 0.62, 1.05);
 const controls = new OrbitControls(camera, canvas);
-controls.target.set(0, 0.28, 0);
+controls.target.set(0, 0.36, 0);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.minDistance = 0.12;
@@ -69,7 +69,7 @@ controls.addEventListener('end', () => {
 });
 
 // Fit the whole machine (a sphere this big round the target) in view.
-const FIT_RADIUS = 0.52;
+const FIT_RADIUS = 0.72;
 function fitDistance() {
   const vFov = THREE.MathUtils.degToRad(camera.fov);
   const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);

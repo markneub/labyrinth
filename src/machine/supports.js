@@ -31,7 +31,8 @@ const tmp1 = new THREE.Vector3(), tmp2 = new THREE.Vector3();
 
 export function planSupports(layout) {
   const paths = marblePaths(layout);
-  const { lift, spiral, funnels } = layout;
+  const { lift, spiral, funnels, helixPosts = [], rings = [] } = layout;
+  const onPosts = new Set([...helixPosts, ...rings].flatMap((h) => h.tracks));
   const posts = [];   // { base, top, arm?: { from, to } }
   const arms = [];    // spiral arms: { from, to }
   const hangers = []; // from the overhead beam down to the top run: { from, to }
@@ -49,7 +50,9 @@ export function planSupports(layout) {
     // The lift tower and the spiral's central post.
     const box = (x, z) => Math.abs(x - lift.x) < 0.06 && Math.abs(z - lift.z) < 0.05;
     if (box(a.x, a.z) || box(b.x, b.z)) return true;
-    if (Math.hypot(a.x - spiral.x, a.z - spiral.z) < 0.03 || Math.hypot(b.x - spiral.x, b.z - spiral.z) < 0.03) return true;
+    for (const h of helixPosts) {
+      if (Math.hypot(a.x - h.x, a.z - h.z) < 0.03 || Math.hypot(b.x - h.x, b.z - h.z) < 0.03) return true;
+    }
     return false;
   };
 
@@ -95,7 +98,7 @@ export function planSupports(layout) {
   for (const l of ladders) posts.push({ base: l.base, top: l.top, arm: null, track: null, s: 0 });
 
   for (const track of layout.tracks) {
-    if (track.name === 'spiral' || track === topRun) continue;
+    if (onPosts.has(track) || track === topRun) continue;
     const isRamp = stack.ramps.includes(track) && track !== stack.ramps[0];
     if (isRamp && onLadder.has(`${track.name}:start`) && onLadder.has(`${track.name}:end`)) continue;
     const len = track.path.length;
@@ -119,16 +122,55 @@ export function planSupports(layout) {
     }
   }
 
-  // Spiral: radial arms from its central post to the inner rail.
-  const coil = layout.tracks.find((t) => t.name === 'spiral');
-  const centre = new THREE.Vector3(spiral.x, 0, spiral.z);
-  for (let s = 0.03; s < coil.path.length - 0.08; s += 0.09) {
-    const p = coil.path.at(s);
-    if (Math.hypot(p.x - spiral.x, p.z - spiral.z) > spiral.radius * 1.2) continue;
-    coil.path.frame(s, frame);
-    const under = p.clone().addScaledVector(frame.u, -TIE_DROP);
-    const from = centre.clone().setY(under.y);
-    arms.push({ from, to: under });
+  // Helices wound round a central post: spokes from the post to the coil at
+  // three fixed angles, so they line up turn after turn.
+  for (const h of helixPosts) {
+    const centre = new THREE.Vector3(h.x, 0, h.z);
+    const spokes = h.spokes || [Math.PI / 6, (5 * Math.PI) / 6, (3 * Math.PI) / 2];
+    for (const coil of h.tracks) {
+      let last = -1;
+      for (let s = 0.02; s < coil.path.length - 0.02; s += 0.003) {
+        const p = coil.path.at(s);
+        const r = Math.hypot(p.x - h.x, p.z - h.z);
+        if (Math.abs(r - h.coilRadius) > 0.006) continue;
+        const ang = Math.atan2(p.z - h.z, p.x - h.x);
+        if (!spokes.some((a) => Math.abs(Math.atan2(Math.sin(ang - a), Math.cos(ang - a))) < 0.03)) continue;
+        if (last >= 0 && s - last < 0.05) continue;
+        last = s;
+        coil.path.frame(s, frame);
+        const under = p.clone().addScaledVector(frame.u, -TIE_DROP);
+        arms.push({ from: centre.clone().setY(under.y), to: under });
+      }
+    }
   }
-  return { posts, arms, hangers, beam, postTop: beamY + 0.02 };
+  // Helices with a ring of posts round the outside: a short arm in to each
+  // turn where it passes a post.
+  for (const ring of rings) {
+    for (const a of ring.angles) {
+      const px = ring.x + Math.cos(a) * ring.postRadius, pz = ring.z + Math.sin(a) * ring.postRadius;
+      let top = 0;
+      const ringArms = [];
+      for (const coil of ring.tracks) {
+        for (let s = 0.02; s < coil.path.length - 0.02; s += 0.003) {
+          const p = coil.path.at(s);
+          const r = Math.hypot(p.x - ring.x, p.z - ring.z);
+          if (Math.abs(r - ring.radius) > 0.006) continue;
+          let off = Math.atan2(p.z - ring.z, p.x - ring.x) - a;
+          off = Math.atan2(Math.sin(off), Math.cos(off));
+          if (Math.abs(off) > 0.02) continue;
+          if (ringArms.length && Math.abs(ringArms[ringArms.length - 1].s - s) < 0.05) continue;
+          coil.path.frame(s, frame);
+          const under = p.clone().addScaledVector(frame.u, -TIE_DROP);
+          ringArms.push({ s, from: new THREE.Vector3(px, under.y, pz), to: under });
+          top = Math.max(top, under.y);
+        }
+      }
+      if (!ringArms.length) continue;
+      const base = new THREE.Vector3(px, 0, pz), postTop = new THREE.Vector3(px, top + 0.012, pz);
+      if (blocked(base, postTop, ring.tracks[0], -1)) continue;
+      posts.push({ base, top: postTop, arm: null, track: null, s: 0 });
+      for (const arm of ringArms) arms.push({ from: arm.from, to: arm.to });
+    }
+  }
+  return { posts, arms, hangers, beam, beamY };
 }

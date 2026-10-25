@@ -1,6 +1,7 @@
 // Synthesised machine sounds: a woody knock when a marble hits a stop or
-// lands, a bright clack when marbles touch, a click from the switch, and
-// a soft rumble that grows with how much is rolling. Quieter further away.
+// lands, a bright clack when marbles touch, a click from the switches, the
+// tuned bars of the chime stack, and a soft rumble that grows with how much
+// is rolling. Quieter further away.
 
 export class MachineSound {
   constructor() {
@@ -53,7 +54,8 @@ export class MachineSound {
       const near = 1 / (1 + 4 * camera.position.distanceTo(e.p));
       const k = Math.min(1, e.strength) * near;
       if (k < 0.02) continue;
-      if (e.kind === 'clack') this.clack(t, k);
+      if (e.kind === 'chime') this.chime(t, Math.max(k, 0.25 * near), e.note);
+      else if (e.kind === 'clack') this.clack(t, k);
       else if (e.kind === 'switch') this.knock(t, k * 0.6, 2400);
       else this.knock(t, k, e.kind === 'land' ? 900 : 1400);
     }
@@ -79,6 +81,23 @@ export class MachineSound {
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
     src.connect(bp).connect(g).connect(this.master);
     src.start(t, Math.random() * 0.8, 0.07);
+  }
+
+  /** A struck brass bar: a pentatonic scale descending with the stack. */
+  chime(t, k, note) {
+    const scale = [1046.5, 880, 783.99, 659.25, 587.33, 523.25, 440, 392];
+    const f = scale[note % scale.length];
+    for (const [mult, amp, decay] of [[1, 0.35, 1.4], [2.76, 0.12, 0.5], [5.4, 0.05, 0.2]]) {
+      const osc = this.ctx.createOscillator();
+      osc.frequency.value = f * mult;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(k * amp, t + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+      osc.connect(g).connect(this.master);
+      osc.start(t);
+      osc.stop(t + decay + 0.05);
+    }
   }
 
   clack(t, k) {
