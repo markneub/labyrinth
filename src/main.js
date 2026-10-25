@@ -34,7 +34,7 @@ const MAX_SPEED = 22;
 const SUBSTEPS = 6;
 
 const CAMERA_ANGLE = THREE.MathUtils.degToRad(24);
-const ZOOM_MAX = 1.7;         // magnification toward the ball while it rolls
+const ZOOM_MAX = 2.5;         // magnification toward the ball while it rolls
 const ZOOM_RATE = 2.5;        // per second; how quickly the camera eases in and out
 const MOVING_SPEED = 0.4;     // units/s; faster than this counts as rolling
 const STILL_DELAY = 0.5;      // seconds near-still before pulling back out
