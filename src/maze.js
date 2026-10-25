@@ -40,13 +40,8 @@ const EMPTY = 0, PATH = 1, HOLE = 2, WALL = 3;
 
 export const WALL_LEN = 0.92;   // block length, in cells
 
-export function generateLevel(level) {
-  const rng = mulberry32(level * 7919 + 101);
-  const mc = level <= 3 ? 5 : 6;
-  const mr = level <= 3 ? 5 : 6;
-  const cols = mc * 2 + 1, rows = mr * 2 + 1;
-
-  // --- Route: deepest branch of a recursive-backtracker maze on the nodes ---
+/** Fine-grid nodes of the deepest branch of a random depth-first maze. */
+function carveRoute(mc, mr, rng) {
   const nid = (i, j) => j * mc + i;
   const parent = new Int32Array(mc * mr).fill(-1);
   const depth = new Int32Array(mc * mr).fill(-1);
@@ -66,16 +61,209 @@ export function generateLevel(level) {
     parent[n] = cur;
     stack.push(n);
   }
-  // Finish as deep as possible, preferring the rim of the board.
+  // Finish as deep as possible, preferring the rim and well away from the start.
   let endNode = startNode, best = -1;
   for (let n = 0; n < mc * mr; n++) {
     const i = n % mc, j = (n / mc) | 0;
     const rim = i === 0 || j === 0 || i === mc - 1 || j === mr - 1;
-    const score = depth[n] + (rim ? 3 : 0);
+    const score = depth[n] + (rim ? 3 : 0) + 1.5 * Math.hypot(i - si, j);
     if (score > best) { best = score; endNode = n; }
   }
   const nodes = [];
   for (let n = endNode; n >= 0; n = parent[n]) nodes.unshift([(n % mc) * 2 + 1, ((n / mc) | 0) * 2 + 1]);
+  return nodes;
+}
+
+const RES = 8;    // raster samples per cell when tracing where the ball fits
+const SKIP = 4;   // route cells an excursion may jump before it counts as a shortcut
+const LANE = 0.75; // how far from the line (in cells) still counts as on the route
+
+/**
+ * Trace where the ball's centre can go (clear of blocks, the rim and hole
+ * mouths), find the quickest way from START to FINISH, and wherever it
+ * leaves the line to skip ahead, block the cell it slipped out through.
+ * Repeat until the quickest way is the printed route. Adds to `holes` and
+ * `walls` in place; returns how many cells it blocked and whether the board
+ * ended up sealed.
+ */
+export function sealShortcuts({ cols, rows, kind, path, holes, walls, start, goal, geom }) {
+  const { ballR, fallR, wallT } = geom;
+  const gw = cols * RES, gh = rows * RES;
+  const coord = (i) => (i + 0.5) / RES - 0.5;   // cell centres sit on integers
+  const at = (x, y) => y * cols + x;
+  const open = new Uint8Array(gw * gh);
+  // Clear raster points within the box [x0,x1]x[y0,y1] grown by r (rounded corners).
+  const carve = (x0, x1, y0, y1, r) => {
+    const i0 = Math.max(0, Math.floor((x0 - r + 0.5) * RES)), i1 = Math.min(gw - 1, Math.ceil((x1 + r + 0.5) * RES));
+    const j0 = Math.max(0, Math.floor((y0 - r + 0.5) * RES)), j1 = Math.min(gh - 1, Math.ceil((y1 + r + 0.5) * RES));
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        const x = coord(i), y = coord(j);
+        const dx = Math.max(x0 - x, 0, x - x1), dy = Math.max(y0 - y, 0, y - y1);
+        if (dx * dx + dy * dy < r * r) open[j * gw + i] = 0;
+      }
+    }
+  };
+  const addHole = (h) => carve(h.x, h.x, h.y, h.y, fallR);
+  const addWall = (w) => {
+    const hl = WALL_LEN / 2, ht = wallT / 2;
+    if (w.horizontal) carve(w.x - hl, w.x + hl, w.y - ht, w.y + ht, ballR);
+    else carve(w.x - ht, w.x + ht, w.y - hl, w.y + hl, ballR);
+  };
+  const rasterize = () => {
+    for (let j = 0; j < gh; j++) {
+      for (let i = 0; i < gw; i++) {
+        const x = coord(i), y = coord(j);
+        open[j * gw + i] = x > -0.5 + ballR && y > -0.5 + ballR && x < cols - 0.5 - ballR && y < rows - 0.5 - ballR ? 1 : 0;
+      }
+    }
+    holes.forEach(addHole);
+    walls.forEach(addWall);
+  };
+  rasterize();
+
+  // Where along the line (in route cells) each sample is nearest, and how far off it.
+  const along = new Float32Array(gw * gh), off = new Float32Array(gw * gh);
+  for (let p = 0; p < gw * gh; p++) {
+    const x = coord(p % gw), y = coord((p / gw) | 0);
+    let bestD = Infinity, bestT = 0;
+    for (let k = 1; k < path.length; k++) {
+      const [ax, ay] = path[k - 1], [bx, by] = path[k];
+      const t = Math.max(0, Math.min(1, (x - ax) * (bx - ax) + (y - ay) * (by - ay)));
+      const d = Math.hypot(x - ax - t * (bx - ax), y - ay - t * (by - ay));
+      if (d < bestD) { bestD = d; bestT = k - 1 + t; }
+    }
+    along[p] = bestT;
+    off[p] = bestD;
+  }
+
+  const toRaster = ([x, y]) => Math.round((y + 0.5) * RES - 0.5) * gw + Math.round((x + 0.5) * RES - 0.5);
+  const cellOf = (p) => at(Math.floor((p % gw) / RES), Math.floor(((p / gw) | 0) / RES));
+  const src = toRaster(start), goalCell = at(goal[0], goal[1]);
+  const prev = new Int32Array(gw * gh);
+
+  // Fence the gap the ball slipped out through with a block in the cell at
+  // raster point `exit`, laid parallel to the line it was leaving, so
+  // neighbouring blocks line up into a wall between the passes. (Holes can't
+  // seal a gap: the ball rolls between two neighbouring holes.) If that cell
+  // is taken, use the free neighbouring cell nearest to the exit, swapping
+  // out a hole if that's what is there; if a block in the way faces the
+  // wrong way, cross it with a second one.
+  const hasWall = (x, y, horizontal) => walls.some((w) => w.x === x && w.y === y && w.horizontal === horizontal);
+  const block = (exit) => {
+    const ei = exit % gw, ej = (exit / gw) | 0;
+    const cx = Math.floor(ei / RES), cy = Math.floor(ej / RES);
+    const k = Math.min(path.length - 2, Math.floor(along[exit]));
+    const horizontal = path[k][1] === path[k + 1][1];
+    let c = -1, bestD = Infinity;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const x = cx + dx, y = cy + dy;
+        if (x < 0 || y < 0 || x >= cols || y >= rows) continue;
+        const kd = kind[at(x, y)];
+        const usable = kd === EMPTY || kd === HOLE || (kd === WALL && !hasWall(x, y, horizontal));
+        if (!usable) continue;
+        // Prefer free cells; holes and crossings only when clearly the one in the way.
+        const d = Math.hypot(x - coord(ei), y - coord(ej)) + (kd === EMPTY ? 0 : 0.25);
+        if (d < bestD) { bestD = d; c = at(x, y); }
+      }
+    }
+    if (c < 0) return false;
+    const x = c % cols, y = (c / cols) | 0;
+    const w = { x, y, horizontal };
+    walls.push(w);
+    if (kind[c] === HOLE) {
+      holes.splice(holes.findIndex((h) => h.x === x && h.y === y), 1);
+      kind[c] = WALL;
+      rasterize();
+    } else {
+      kind[c] = WALL;
+      addWall(w);
+    }
+    return true;
+  };
+
+  let blocked = 0, clean = false;
+  for (let iter = 0; iter < 300; iter++) {
+    // Breadth-first over the raster (8-connected) from the start.
+    prev.fill(-1);
+    prev[src] = src;
+    const queue = [src];
+    let found = -1;
+    for (let qi = 0; qi < queue.length && found < 0; qi++) {
+      const p = queue[qi];
+      const pi = p % gw, pj = (p / gw) | 0;
+      for (let dj = -1; dj <= 1; dj++) {
+        for (let di = -1; di <= 1; di++) {
+          const i = pi + di, j = pj + dj;
+          if (i < 0 || j < 0 || i >= gw || j >= gh) continue;
+          const n = j * gw + i;
+          if (!open[n] || prev[n] >= 0) continue;
+          // No squeezing diagonally between two blocked samples.
+          if (di && dj && !open[pj * gw + i] && !open[j * gw + pi]) continue;
+          prev[n] = p;
+          if (cellOf(n) === goalCell) { found = n; break; }
+          queue.push(n);
+        }
+        if (found >= 0) break;
+      }
+    }
+    if (found < 0) break;  // FINISH unreachable: shouldn't happen, the route is always clear
+
+    const route = [];
+    for (let p = found; p !== src; p = prev[p]) route.unshift(p);
+    route.unshift(src);
+    // Look for an excursion off the line that rejoins it far ahead.
+    let lastT = 0, excursion = [], shortcut = false, sealed = false;
+    for (const p of route) {
+      if (off[p] <= LANE) {
+        if (excursion.length && along[p] - lastT > SKIP) {
+          shortcut = true;
+          // Fence where it slipped out, or failing that anywhere along the way.
+          sealed = excursion.some(block);
+          break;
+        }
+        excursion = [];
+        lastT = along[p];
+      } else {
+        excursion.push(p);
+      }
+    }
+    if (!shortcut) { clean = true; break; }
+    if (!sealed) break;   // nowhere left to put a block
+    blocked++;
+  }
+  return { blocked, clean };
+}
+
+/**
+ * `geom` gives the ball's radius, the radius within which a hole swallows it,
+ * and the block thickness, all in cells; they decide where the ball fits
+ * when sealing shortcuts.
+ */
+export function generateLevel(level, geom = { ballR: 0.23, fallR: 0.26, wallT: 0.185 }) {
+  // Reroll the rare board that can't be sealed against shortcuts.
+  let board;
+  for (let variant = 0; variant < 6; variant++) {
+    board = buildBoard(level, level * 7919 + 101 + variant * 104729, geom);
+    if (board.seal.clean) break;
+  }
+  return board;
+}
+
+function buildBoard(level, seed, geom) {
+  const rng = mulberry32(seed);
+  const mc = level <= 3 ? 5 : 6;
+  const mr = level <= 3 ? 5 : 6;
+  const cols = mc * 2 + 1, rows = mr * 2 + 1;
+
+  // --- Route: deepest branch of a recursive-backtracker maze on the nodes ---
+  // A few attempts, keeping the longest, so the line covers most of the board.
+  let nodes = [];
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const candidate = carveRoute(mc, mr, rng);
+    if (candidate.length > nodes.length) nodes = candidate;
+  }
 
   const kind = new Uint8Array(cols * rows);
   const pathIndex = new Int32Array(cols * rows).fill(-1);
@@ -142,6 +330,8 @@ export function generateLevel(level) {
     }
   }
 
+  const seal = sealShortcuts({ cols, rows, kind, path, holes, walls, start: nodes[0], goal: nodes[nodes.length - 1], geom });
+
   // Later levels nudge holes toward the line to narrow the safe track.
   const nudge = Math.min(0.03 * level, 0.15);
   for (const h of holes) {
@@ -200,7 +390,7 @@ export function generateLevel(level) {
   for (const h of holes) if (h.num) h.label = place(h.x, h.y, 0.5, h);
 
   return {
-    level, cols, rows, path, holes, walls,
+    level, cols, rows, path, holes, walls, seal,
     start: { x: sx, y: sy },
     goal: { x: gx, y: gy },
     startLabel: place(sx, sy, 0.62),

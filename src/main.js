@@ -203,7 +203,12 @@ function makeKnob() {
 
 function buildLevel(level) {
   for (const g of game.groups) disposeGroup(g);
-  const maze = generateLevel(level);
+  // The generator seals shortcuts using where the ball really fits, in cells.
+  const maze = generateLevel(level, {
+    ballR: BALL_R / CELL,
+    fallR: (HOLE_R * 0.8) / CELL,
+    wallT: WALL_T / CELL,
+  });
   const W = maze.cols * CELL, H = maze.rows * CELL;
   const toW = (p) => ({ x: -W / 2 + (p.x + 0.5) * CELL, z: -H / 2 + (p.y + 0.5) * CELL });
 
