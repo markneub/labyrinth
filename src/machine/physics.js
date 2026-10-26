@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 
-// Ordinary earth physics in SI units: a 16 mm glass marble on wooden rails.
+// Ordinary earth physics in SI units: a 21 mm glass marble (a little larger
+// than the usual 16 mm, so it is easy to follow) on wooden rails or grooves.
 export const G = 9.81;
-export const R = 0.008;          // marble radius
-export const RAIL_R = 0.0025;    // dowel rail radius
-export const GAUGE = 0.014;      // rail centre-to-centre
+export const R = 0.0105;         // marble radius
+export const RAIL_R = 0.003;     // dowel rail radius
+export const GAUGE = 0.017;      // rail centre-to-centre
 // The marble rests on the two rails: its centre sits this far above them.
 export const RIDE = Math.sqrt((R + RAIL_R) ** 2 - (GAUGE / 2) ** 2);
 // Rolling on two rails: I / (m ρ²) with ρ the centre's height over the contact line.

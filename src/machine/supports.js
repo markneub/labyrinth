@@ -6,7 +6,7 @@ import { R, RAIL_R, RIDE } from './physics.js';
 // flight paths, the funnel and the lift. Pure data, so the checker can
 // verify it too.
 
-export const POST_R = 0.004;
+export const POST_R = 0.005;
 export const TIE_DROP = RIDE + RAIL_R + 0.002;   // marble centre to the underside of a tie
 const SPACING = 0.15;
 const CLEAR = R + RAIL_R + POST_R + 0.003;       // post to any marble path

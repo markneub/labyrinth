@@ -24,6 +24,7 @@ export class Track {
     this.backstop = backstop;   // an end block at s = 0
     this.end = { type: 'stop' }; // what happens at the far end: next | switch | fly | stop
     this.catch = null;          // [s0, s1]: where a flying marble can land on it
+    this.style = 'routed';      // routed: a groove cut in a maple board; rails: two dowels on ties
   }
 }
 
@@ -247,7 +248,7 @@ export function buildLayout() {
   lift.releaseY = lift.yTop - 0.006;
 
   // ---- Top run along the back to the first flip-flop ----
-  const tower = { x: 0.36, outer: 0.115, inner: 0.06 };
+  const tower = { x: 0.36, outer: 0.115, inner: 0.065 };
   tower.z = lift.z + tower.outer;
   const top = lay('top run', turtle(V(lift.ballX, lift.releaseY, lift.z), 0, 0.06).ease(0.06, 0.03).straight(0.66 - 0.06 - 0.12 + (0.22 - 0.06), 0.03));
   // (ends at x ≈ 0.22)
@@ -256,7 +257,7 @@ export function buildLayout() {
   // ---- F1: twin concentric spirals round one tower ----
   const f1 = end(top);
   const outerT = turtle(f1.p, 0, 0.03).straight(tower.x - f1.p.x, 0.03);
-  outerT.turn(tower.outer, -1.5 * 2 * Math.PI, 0.048);
+  outerT.turn(tower.outer, -1.5 * 2 * Math.PI, 0.056);
   outerT.straight(0.09, 0.03);
   const outer = lay('outer spiral', outerT);
   rings.push({ x: tower.x, z: tower.z, radius: tower.outer, postRadius: tower.outer + 0.035, angles: [Math.PI * 0.25, Math.PI * 0.75, Math.PI * 1.25, Math.PI * 1.75], tracks: [outer] });
@@ -266,7 +267,7 @@ export function buildLayout() {
   const half = Math.atan2(dz / 2, run1 / 2) * 2, rS = run1 / 2 / Math.sin(half);
   innerT.turn(rS, -half, 0.03);
   innerT.turn(rS, half, 0.03);
-  innerT.turn(tower.inner, -2.5 * 2 * Math.PI, 0.085);
+  innerT.turn(tower.inner, -2.5 * 2 * Math.PI, 0.098);
   innerT.straight(0.09, 0.03);
   const inner = lay('inner spiral', innerT);
   fork(top, outer, inner);
@@ -337,7 +338,7 @@ export function buildLayout() {
   loopT.turn(0.055, Math.PI / 2, 0.04);         // left, towards the front
   loopT.turn(0.055, -Math.PI / 2, 0.04);        // and right, heading west again
   loopT.straight(0.02, 0.04).ease(0.12, 0.85).straight(0.1, 0.85).ease(0.07, 0.0).straight(0.02, 0);
-  loopT.loop(0.042, -0.034);                    // drifting right, towards the back
+  loopT.loop(0.042, -0.042);                    // drifting right, towards the back
   loopT.straight(0.02, 0.0).ease(0.04, -0.38);  // and kick up off the end
   const looper = lay('loop-the-loop', loopT);
   looper.end = { type: 'fly' };
@@ -382,7 +383,7 @@ export function buildLayout() {
   stadT.straight(0.03, 0.06).turn(0.06, Math.PI / 2, 0.07);     // left, out to the front (under the loop route)
   stadT.turn(0.06, Math.PI / 2, 0.05);                           // left again: heading east
   const st0 = stadT.p.clone();
-  stadT.stadium(0.12, 0.06, 2, 0.06);
+  stadT.stadium(0.12, 0.06, 2, 0.066);
   stadT.straight(0.12, 0.05).turn(0.06, -Math.PI, 0.05);         // and half a lap more: heading west, along its front
   const stadium = lay('stadium helix', stadT);
   for (const x of [st0.x + 0.12, st0.x]) {
@@ -498,19 +499,19 @@ export function buildLayout() {
   flights.push([V(funnel.cx, holeY, funnel.cz), drop1.path.at(0)]);
   let vd = run(drop1, SPOUT_V), dPrev = drop1, dHead = N;
   const drops = [drop1];
-  for (let k = 2; k <= 6; k++) {
+  for (let k = 2; k <= 4; k++) {
     const off = launch(dPrev, vd);
-    const y = off.p.y - 0.0335;
+    const y = off.p.y - 0.05;
     const land = flyUntil(off, (p, vel) => vel.y < 0 && p.y <= y);
     flights.push(land.arc);
     dHead = dHead === N ? S : N;
     const start = off.p.clone().setY(y + 0.002);
     start.z -= Math.sin(dHead) * 0.014;
     const dT = turtle(start, dHead, 0.05);
-    dT.straight(k === 6 ? 0.08 : 0.1, 0.05);
+    dT.straight(k === 4 ? 0.08 : 0.1, 0.05);
     const d = lay(`drop stack ${k}`, dT, { backstop: true });
     d.catch = [0, 0.04];
-    d.end = k === 6 ? { type: 'next' } : { type: 'fly', wall: true };
+    d.end = k === 4 ? { type: 'next' } : { type: 'fly', wall: true };
     vd = roll(d, Math.abs(land.v.z), d.path.nearest(land.p).s).v;
     drops.push(d);
     dPrev = d;
@@ -554,6 +555,12 @@ export function buildLayout() {
     switches: switches.length, jumpLaunch: launch(looper, vLoop), orbit: orbitTime,
     speeds: { vOuter, vInner, vLoop, vHills, vFirst, vStadium, vFeed, vBack, vCollector, vWaves, vChute },
   };
+
+  // Most of the machine is routed track; the open dowel rails are kept where
+  // seeing through them shows off the feature (the loop, the bumps) or the
+  // track hangs from above (the top run).
+  const RAILS = new Set(['top run', 'loop-the-loop', 'hills', 'waves']);
+  for (const t of tracks) if (RAILS.has(t.name)) t.style = 'rails';
 
   lift.from = home;
   lift.to = top;

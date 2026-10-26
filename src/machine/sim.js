@@ -301,7 +301,11 @@ export class Machine {
       for (let j = i + 1; j < ms.length; j++) {
         const a = ms[i], b = ms[j];
         if (a.mode === 'track' && b.mode === 'track') this.collideOnTrack(a, b);
-        else if (a.mode !== 'lift' && b.mode !== 'lift' && a.mode !== 'track' && b.mode !== 'track') this.collideFree(a, b);
+        else if (a.mode !== 'lift' && b.mode !== 'lift' && a.mode !== 'track' && b.mode !== 'track') {
+          // A marble dropping down a spout is inside its tube, out of reach of the bowl.
+          if (a.dropped || b.dropped) continue;
+          this.collideFree(a, b);
+        }
       }
     }
   }

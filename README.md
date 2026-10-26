@@ -12,7 +12,7 @@ binary counter:
   (one and a half turns outside, two and a half inside).
 - **F2**, at the outer spiral's foot: a steep drop into a **loop-the-loop** and
   a kicker that jumps the marble into the **big funnel**, whose spout drops it
-  down a six-level **drop stack** of short ramps with wooden end blocks; or
+  down a four-level **drop stack** of short ramps with wooden end blocks; or
   **hills** that cross over the loop route and jump into the **funnel
   cascade**, three bowls across the front, each spout throwing marbles on into
   the next.
@@ -24,8 +24,12 @@ binary counter:
 
 Everything merges into the collectors and back run to the lift.
 
-Everything moves by ordinary physics in SI units (a 16 mm glass marble on
-wooden dowel rails: gravity along the track, rolling on two rails, rolling
+Most of the track is routed: a V-groove cut along an oak board. The loop, the
+hills, the waves and the top run are open maple dowel rails on ties.
+
+Everything moves by ordinary physics in SI units (a 21 mm glass marble, a
+little bigger than usual so it's easy to follow, in a groove or on two rails,
+which it touches at the same two points: gravity along the track, rolling
 resistance and drag; free flight; rolling freely over the funnel's surface;
 marbles bumping into each other). The layout is built by test-rolling a marble
 through it, so jumps land in their funnel, drops land on their ramp, every
@@ -35,7 +39,7 @@ loop's top). Tracks are laid with a turtle (`Turtle` in `path.js`: straights,
 turns, spirals, hills, loops, racetrack helices), so pieces always join smoothly.
 
 Checks: `node tools/check_machine.mjs [seconds]` checks track clearances and
-supports and runs the machine headless (10 minutes with 12 marbles: ~335 laps,
+supports and runs the machine headless (10 minutes with 12 marbles: ~350 laps,
 none lost or stuck); `node tools/plot_machine.mjs out.svg` draws the tracks
 from above and the front. `?view=x,y,z,tx,ty,tz` starts the camera at a given
 spot; the corner shows the frame rate.
@@ -54,7 +58,7 @@ python3 tools/pack_usdz.py public/machine.usdz   # binary geometry, JPEG texture
 Code: `src/machine/` (`path.js` curves and the turtle, `physics.js`,
 `layout.js` the machine's design, `sim.js` the running machine, `supports.js`,
 `scene.js` meshes (static wood merged into a few dozen draw calls), `sound.js`,
-`main.js`). Woods are CC0 from Poly Haven: maple rails, oak ties and blocks,
+`main.js`). Woods are CC0 from Poly Haven: maple rails, oak boards, ties and blocks,
 walnut posts, bowl and gears, teak base.
 
 ---

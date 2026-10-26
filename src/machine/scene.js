@@ -5,7 +5,7 @@ import { R, RAIL_R, GAUGE, RIDE } from './physics.js';
 import { chainPoint } from './sim.js';
 import { POST_R, TIE_DROP } from './supports.js';
 
-// Meshes for the machine. Woods: maple rails and ties, oak paddles, blocks
+// Meshes for the machine. Woods: maple rails and ties, oak routed boards, paddles, blocks
 // and arms, walnut posts, bowls and gears, a teak base.
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -45,6 +45,89 @@ class PolyCurve extends THREE.Curve {
     const f = t * (this.points.length - 1), i = Math.min(this.points.length - 2, Math.floor(f));
     return out.lerpVectors(this.points[i], this.points[i + 1], f - i);
   }
+}
+
+/**
+ * The cross-section of a routed track: a maple board with a V-groove cut
+ * along it, (x across to the right, y up) from the marble's centre. The
+ * groove's walls touch the marble just where the two rails would, so the
+ * marble rides exactly as it does on dowels.
+ */
+export const BOARD_W = 0.036;
+const BOARD_TOP = -0.003, BOARD_BOTTOM = -(RIDE + RAIL_R + 0.0026), CHAMFER = 0.0015;
+function grooveProfile() {
+  const k = R / (R + RAIL_R);
+  const c = new THREE.Vector2((GAUGE / 2) * k, -RIDE * k);          // where the marble touches the right wall
+  const along = new THREE.Vector2(-c.y, c.x).normalize();          // up the wall, perpendicular to the contact
+  if (along.y < 0) along.negate();
+  const floor = -(R + 0.0015);
+  const top = c.clone().addScaledVector(along, (BOARD_TOP - c.y) / along.y);
+  const foot = c.clone().addScaledVector(along, (floor - c.y) / along.y);
+  const half = BOARD_W / 2;
+  // Counter-clockwise, so the outward normal is to the right of each edge.
+  return [
+    [-half, BOARD_BOTTOM], [half, BOARD_BOTTOM], [half, BOARD_TOP - CHAMFER], [half - CHAMFER, BOARD_TOP],
+    [top.x, BOARD_TOP], [foot.x, floor], [-foot.x, floor], [-top.x, BOARD_TOP],
+    [-half + CHAMFER, BOARD_TOP], [-half, BOARD_TOP - CHAMFER],
+  ].map(([x, y]) => new THREE.Vector2(x, y));
+}
+const GROOVE = grooveProfile();
+
+/** A routed track along a path: the profile swept along it, flat-shaded edges, grain along its length. */
+function routedGeometry(path, tile) {
+  const frame = { t: new THREE.Vector3(), l: new THREE.Vector3(), u: new THREE.Vector3() };
+  const rings = [];
+  const n = Math.max(2, Math.ceil(path.length / 0.008));
+  for (let i = 0; i <= n; i++) {
+    const s = (i / n) * path.length;
+    const p = path.at(s);
+    path.frame(s, frame);
+    // x is to the right, which is minus the frame's left.
+    rings.push({ s, pts: GROOVE.map((q) => p.clone().addScaledVector(frame.l, -q.x).addScaledVector(frame.u, q.y)), t: frame.t.clone(), l: frame.l.clone(), u: frame.u.clone() });
+  }
+  const pos = [], nor = [], uv = [], idx = [];
+  const m = GROOVE.length;
+  let around = 0;
+  for (let j = 0; j < m; j++) {
+    const a = GROOVE[j], b = GROOVE[(j + 1) % m];
+    const edge = b.clone().sub(a), len = edge.length();
+    const out = new THREE.Vector2(edge.y, -edge.x).normalize();
+    const base = pos.length / 3;
+    for (const r of rings) {
+      const nrm = r.l.clone().multiplyScalar(-out.x).addScaledVector(r.u, out.y);
+      for (const [q, v] of [[r.pts[j], around], [r.pts[(j + 1) % m], around + len]]) {
+        pos.push(q.x, q.y, q.z);
+        nor.push(nrm.x, nrm.y, nrm.z);
+        uv.push(r.s / tile, v / tile);
+      }
+    }
+    for (let i = 0; i < rings.length - 1; i++) {
+      const a0 = base + i * 2, b0 = a0 + 1, a1 = a0 + 2, b1 = a0 + 3;
+      idx.push(a0, a1, b0, b0, a1, b1);
+    }
+    around += len;
+  }
+  // End caps.
+  const tris = THREE.ShapeUtils.triangulateShape(GROOVE, []);
+  for (const [r, dir] of [[rings[0], -1], [rings[rings.length - 1], 1]]) {
+    const base = pos.length / 3;
+    for (let j = 0; j < m; j++) {
+      pos.push(r.pts[j].x, r.pts[j].y, r.pts[j].z);
+      nor.push(r.t.x * dir, r.t.y * dir, r.t.z * dir);
+      uv.push(GROOVE[j].x / tile, GROOVE[j].y / tile);
+    }
+    for (const [a, b, c] of tris) {
+      // Wind each cap triangle to face out of the end.
+      const pa = r.pts[a], n = new THREE.Vector3().crossVectors(r.pts[b].clone().sub(pa), r.pts[c].clone().sub(pa));
+      idx.push(...(n.dot(r.t) * dir > 0 ? [base + a, base + b, base + c] : [base + a, base + c, base + b]));
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  return g;
 }
 
 const basisMatrix = (x, y, z, pos) => new THREE.Matrix4().makeBasis(x, y, z).setPosition(pos);
@@ -136,30 +219,39 @@ export function buildMeshes(layout, supports, maps, anisotropy) {
   const ties = [];
   const blocks = [];
   const chimeBars = [];
+  const boardTile = 0.3;
+  const boardMat = oak(boardTile, boardTile).clone();
+  boardMat.color.set(0xf2d3a6);   // a warmer, honey-coloured oak for the boards
   for (const track of layout.tracks) {
     const { path } = track;
-    const left = [], right = [];
-    for (let s = 0; s <= path.length + 1e-6; s += 0.008) {
-      const p = path.at(Math.min(s, path.length));
-      path.frame(Math.min(s, path.length), frame);
-      const c = p.clone().addScaledVector(frame.u, -RIDE);
-      left.push(c.clone().addScaledVector(frame.l, GAUGE / 2));
-      right.push(c.clone().addScaledVector(frame.l, -GAUGE / 2));
+    if (track.style === 'routed') {
+      group.add(shadow(new THREE.Mesh(routedGeometry(path, boardTile), boardMat)));
+    } else {
+      const left = [], right = [];
+      for (let s = 0; s <= path.length + 1e-6; s += 0.008) {
+        const p = path.at(Math.min(s, path.length));
+        path.frame(Math.min(s, path.length), frame);
+        const c = p.clone().addScaledVector(frame.u, -RIDE);
+        left.push(c.clone().addScaledVector(frame.l, GAUGE / 2));
+        right.push(c.clone().addScaledVector(frame.l, -GAUGE / 2));
+      }
+      for (const pts of [left, right]) {
+        const geo = new THREE.TubeGeometry(new PolyCurve(pts), pts.length, RAIL_R, 6, false);
+        group.add(shadow(new THREE.Mesh(geo, maple(path.length, 0.02))));
+      }
+      for (let s = 0.012; s < path.length; s += 0.028) {
+        const p = path.at(s);
+        path.frame(s, frame);
+        const pos = p.addScaledVector(frame.u, -(RIDE + RAIL_R + 0.0012));
+        ties.push(basisMatrix(frame.l, frame.u, frame.t, pos));
+      }
     }
-    for (const pts of [left, right]) {
-      const geo = new THREE.TubeGeometry(new PolyCurve(pts), pts.length, RAIL_R, 6, false);
-      group.add(shadow(new THREE.Mesh(geo, maple(path.length, 0.02))));
-    }
-    for (let s = 0.012; s < path.length; s += 0.028) {
-      const p = path.at(s);
-      path.frame(s, frame);
-      const pos = p.addScaledVector(frame.u, -(RIDE + RAIL_R + 0.0012));
-      ties.push(basisMatrix(frame.l, frame.u, frame.t, pos));
-    }
+    // End blocks span the board on routed track, the rails on dowel track.
+    const blockWide = track.style === 'routed' ? (BOARD_W + 0.002) / (GAUGE + 2 * RAIL_R + 0.004) : 1;
     if (track.backstop) {
       path.frame(0, frame);
       const pos = path.at(0).addScaledVector(frame.t, -(R + 0.004)).addScaledVector(frame.u, 0.001);
-      blocks.push(basisMatrix(frame.l, frame.u, frame.t, pos));
+      blocks.push(basisMatrix(frame.l.clone().multiplyScalar(blockWide), frame.u, frame.t, pos));
     }
     if (track.end.wall) {
       path.frame(path.length, frame);
@@ -169,18 +261,18 @@ export function buildMeshes(layout, supports, maps, anisotropy) {
         chimeBars.push({ m: basisMatrix(frame.u, frame.l, frame.t, pos), pos, l: frame.l.clone() });
       } else {
         const pos = path.at(path.length).addScaledVector(frame.t, R + 0.004).addScaledVector(frame.u, 0.003);
-        blocks.push(basisMatrix(frame.l, frame.u, frame.t, pos));
+        blocks.push(basisMatrix(frame.l.clone().multiplyScalar(blockWide), frame.u, frame.t, pos));
       }
     }
   }
   // Chime bars hang between two little oak posts.
   const brass = new THREE.MeshStandardMaterial({ color: 0xc9a24a, metalness: 1, roughness: 0.28 });
   for (const c of chimeBars) {
-    const bar = shadow(new THREE.Mesh(new THREE.CylinderGeometry(0.0042, 0.0042, GAUGE + 0.022, 16), brass));
+    const bar = shadow(new THREE.Mesh(new THREE.CylinderGeometry(0.0042, 0.0042, BOARD_W + 0.008, 16), brass));
     bar.applyMatrix4(c.m);
     group.add(bar);
     for (const side of [-1, 1]) {
-      const end = c.pos.clone().addScaledVector(c.l, side * (GAUGE / 2 + 0.013));
+      const end = c.pos.clone().addScaledVector(c.l, side * (BOARD_W / 2 + 0.004));
       group.add(shadow(dowel(end.clone().setY(end.y - RIDE - 0.006), end.clone().setY(end.y + 0.008), 0.0022, oak(0.03, 0.01))));
     }
   }
