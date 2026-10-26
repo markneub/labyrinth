@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Path, Turtle } from './path.js';
-import { G, R, BOUNCE, Funnel, trackAccel, funnelStep, flyStep } from './physics.js';
+import { G, R, BOUNCE, Funnel, trackAccel, rollFactor, funnelStep, flyStep } from './physics.js';
 
 // The machine, laid out in metres on a base whose top is y = 0. x runs left
 // to right, z towards the viewer.
@@ -17,6 +17,11 @@ import { G, R, BOUNCE, Funnel, trackAccel, funnelStep, flyStep } from './physics
 // through the machine as it is built, and curves are banked for the speed
 // the marble actually has there.
 
+// Most of the machine is routed track; open dowel rails are kept where seeing
+// through them shows off the feature (the loop, the bumps) or the track hangs
+// from above (the top run).
+const RAILS = new Set(['top run', 'loop-the-loop', 'hills', 'waves']);
+
 export class Track {
   constructor(name, path, { backstop = false } = {}) {
     this.name = name;
@@ -24,7 +29,7 @@ export class Track {
     this.backstop = backstop;   // an end block at s = 0
     this.end = { type: 'stop' }; // what happens at the far end: next | switch | fly | stop
     this.catch = null;          // [s0, s1]: where a flying marble can land on it
-    this.style = 'routed';      // routed: a groove cut in a maple board; rails: two dowels on ties
+    this.style = RAILS.has(name) ? 'rails' : 'routed';   // routed: a round groove cut in an oak board; rails: two dowels on ties
   }
 }
 
@@ -47,9 +52,10 @@ const DT = 1 / 4000;
 function roll(track, v0, s0 = 0) {
   const path = track.path;
   const speed = new Float32Array(path.count);
+  const k = rollFactor(track);
   let s = s0, v = v0, t = 0, still = 0;
   while (s < path.length) {
-    v += trackAccel(path, s, v) * DT;
+    v += trackAccel(path, s, v, k) * DT;
     s += v * DT;
     t += DT;
     if (s < 0) {
@@ -555,12 +561,6 @@ export function buildLayout() {
     switches: switches.length, jumpLaunch: launch(looper, vLoop), orbit: orbitTime,
     speeds: { vOuter, vInner, vLoop, vHills, vFirst, vStadium, vFeed, vBack, vCollector, vWaves, vChute },
   };
-
-  // Most of the machine is routed track; the open dowel rails are kept where
-  // seeing through them shows off the feature (the loop, the bumps) or the
-  // track hangs from above (the top run).
-  const RAILS = new Set(['top run', 'loop-the-loop', 'hills', 'waves']);
-  for (const t of tracks) if (RAILS.has(t.name)) t.style = 'rails';
 
   lift.from = home;
   lift.to = top;

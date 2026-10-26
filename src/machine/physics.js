@@ -6,7 +6,7 @@ export const G = 9.81;
 export const R = 0.0105;         // marble radius
 export const RAIL_R = 0.003;     // dowel rail radius
 export const GAUGE = 0.017;      // rail centre-to-centre
-// The marble rests on the two rails: its centre sits this far above them.
+// On dowel track the marble rests on the two rails: its centre sits this far above them.
 export const RIDE = Math.sqrt((R + RAIL_R) ** 2 - (GAUGE / 2) ** 2);
 // Rolling on two rails: I / (m ρ²) with ρ the centre's height over the contact line.
 export const ROLL = 1 / (1 + (0.4 * R * R) / (RIDE * RIDE));
@@ -19,9 +19,17 @@ export const BALL_BOUNCE = 0.8;  // glass on glass
 
 const GRAV = new THREE.Vector3(0, -G, 0);
 
-/** Acceleration along a track at arc length s, moving at v (m/s). */
-export function trackAccel(path, s, v) {
-  const a = ROLL * G * -path.slope(s);
+/** Routed track: the groove is round and just wider than the marble, which rolls on the bottom of it. */
+export const GROOVE_R = R + 0.0015;
+
+/** How much of gravity's pull goes into speed on a track, rather than spin. */
+export const rollFactor = (track) => (track.style === 'routed' ? ROLL_FREE : ROLL);
+/** The radius the marble spins about on a track (to its contact). */
+export const spinRadius = (track) => (track.style === 'routed' ? R : RIDE);
+
+/** Acceleration along a track at arc length s, moving at v (m/s); `roll` from rollFactor. */
+export function trackAccel(path, s, v, roll = ROLL) {
+  const a = roll * G * -path.slope(s);
   const loss = MU * G + DRAG * v * v;
   if (Math.abs(v) > 1e-3) return a - Math.sign(v) * loss;
   // At rest it only starts rolling if gravity beats rolling resistance.

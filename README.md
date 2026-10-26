@@ -24,13 +24,13 @@ binary counter:
 
 Everything merges into the collectors and back run to the lift.
 
-Most of the track is routed: a V-groove cut along an oak board. The loop, the
-hills, the waves and the top run are open maple dowel rails on ties.
+Most of the track is routed: a round groove, just wider than the marble, cut
+along an oak board. The loop, the hills, the waves and the top run are open
+maple dowel rails on ties.
 
 Everything moves by ordinary physics in SI units (a 21 mm glass marble, a
-little bigger than usual so it's easy to follow, in a groove or on two rails,
-which it touches at the same two points: gravity along the track, rolling
-resistance and drag; free flight; rolling freely over the funnel's surface;
+little bigger than usual so it's easy to follow, rolling in a groove or on two
+rails: gravity along the track, rolling resistance and drag; free flight; rolling freely over the funnel's surface;
 marbles bumping into each other). The layout is built by test-rolling a marble
 through it, so jumps land in their funnel, drops land on their ramp, every
 curve is banked for the speed the marble really has there, and nowhere would

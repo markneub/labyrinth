@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { R, RAIL_R, GAUGE, RIDE } from './physics.js';
+import { R, RAIL_R, GAUGE, RIDE, GROOVE_R } from './physics.js';
 import { chainPoint } from './sim.js';
 import { POST_R, TIE_DROP } from './supports.js';
 
@@ -48,55 +48,68 @@ class PolyCurve extends THREE.Curve {
 }
 
 /**
- * The cross-section of a routed track: a maple board with a V-groove cut
- * along it, (x across to the right, y up) from the marble's centre. The
- * groove's walls touch the marble just where the two rails would, so the
- * marble rides exactly as it does on dowels.
+ * The cross-section of a routed track: an oak board with a round groove cut
+ * along it, just wider than the marble, (x across to the right, y up) from
+ * the marble's centre. Returned as edges, each with a normal at both ends:
+ * flat faces, and a smooth groove.
  */
 export const BOARD_W = 0.036;
-const BOARD_TOP = -0.003, BOARD_BOTTOM = -(RIDE + RAIL_R + 0.0026), CHAMFER = 0.0015;
+const BOARD_BOTTOM = -(RIDE + RAIL_R + 0.0026), CHAMFER = 0.0015;
+const GROOVE_DEPTH = 0.007;
 function grooveProfile() {
-  const k = R / (R + RAIL_R);
-  const c = new THREE.Vector2((GAUGE / 2) * k, -RIDE * k);          // where the marble touches the right wall
-  const along = new THREE.Vector2(-c.y, c.x).normalize();          // up the wall, perpendicular to the contact
-  if (along.y < 0) along.negate();
-  const floor = -(R + 0.0015);
-  const top = c.clone().addScaledVector(along, (BOARD_TOP - c.y) / along.y);
-  const foot = c.clone().addScaledVector(along, (floor - c.y) / along.y);
-  const half = BOARD_W / 2;
-  // Counter-clockwise, so the outward normal is to the right of each edge.
-  return [
-    [-half, BOARD_BOTTOM], [half, BOARD_BOTTOM], [half, BOARD_TOP - CHAMFER], [half - CHAMFER, BOARD_TOP],
-    [top.x, BOARD_TOP], [foot.x, floor], [-foot.x, floor], [-top.x, BOARD_TOP],
-    [-half + CHAMFER, BOARD_TOP], [-half, BOARD_TOP - CHAMFER],
-  ].map(([x, y]) => new THREE.Vector2(x, y));
+  const half = BOARD_W / 2, top = -R + GROOVE_DEPTH;
+  const cy = -R + GROOVE_R;                              // the groove's centre, above the marble's
+  const reach = Math.acos((cy - top) / GROOVE_R);        // angle from the bottom to the groove's edge
+  const edges = [];
+  const flat = (...pts) => {
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = new THREE.Vector2(...pts[i]), b = new THREE.Vector2(...pts[i + 1]);
+      const d = b.clone().sub(a), n = new THREE.Vector2(d.y, -d.x).normalize();   // counter-clockwise: outward is to the right
+      edges.push({ a, b, na: n, nb: n });
+    }
+  };
+  // Counter-clockwise from the bottom left corner.
+  flat([-half, BOARD_BOTTOM], [half, BOARD_BOTTOM], [half, top - CHAMFER], [half - CHAMFER, top], [GROOVE_R * Math.sin(reach), top]);
+  const steps = 16;
+  for (let i = 0; i < steps; i++) {
+    const at = (k) => {
+      const th = reach - (2 * reach * k) / steps;        // from the right edge, down round the bottom, to the left
+      const p = new THREE.Vector2(GROOVE_R * Math.sin(th), cy - GROOVE_R * Math.cos(th));
+      return { p, n: new THREE.Vector2(0, cy).sub(p).normalize() };
+    };
+    const a = at(i), b = at(i + 1);
+    edges.push({ a: a.p, b: b.p, na: a.n, nb: b.n });
+  }
+  flat([-GROOVE_R * Math.sin(reach), top], [-half + CHAMFER, top], [-half, top - CHAMFER], [-half, BOARD_BOTTOM]);
+  return edges;
 }
 const GROOVE = grooveProfile();
+const OUTLINE = GROOVE.map((e) => e.a);
 
-/** A routed track along a path: the profile swept along it, flat-shaded edges, grain along its length. */
+/** A routed track along a path: the profile swept along it, grain along its length. */
 function routedGeometry(path, tile) {
   const frame = { t: new THREE.Vector3(), l: new THREE.Vector3(), u: new THREE.Vector3() };
   const rings = [];
   const n = Math.max(2, Math.ceil(path.length / 0.008));
+  // x is to the right, which is minus the frame's left.
+  const place = (r, q) => r.p.clone().addScaledVector(r.l, -q.x).addScaledVector(r.u, q.y);
+  const turn = (r, q) => r.l.clone().multiplyScalar(-q.x).addScaledVector(r.u, q.y);
   for (let i = 0; i <= n; i++) {
     const s = (i / n) * path.length;
-    const p = path.at(s);
     path.frame(s, frame);
-    // x is to the right, which is minus the frame's left.
-    rings.push({ s, pts: GROOVE.map((q) => p.clone().addScaledVector(frame.l, -q.x).addScaledVector(frame.u, q.y)), t: frame.t.clone(), l: frame.l.clone(), u: frame.u.clone() });
+    const r = { s, p: path.at(s), t: frame.t.clone(), l: frame.l.clone(), u: frame.u.clone() };
+    r.pts = OUTLINE.map((q) => place(r, q));
+    rings.push(r);
   }
   const pos = [], nor = [], uv = [], idx = [];
-  const m = GROOVE.length;
   let around = 0;
-  for (let j = 0; j < m; j++) {
-    const a = GROOVE[j], b = GROOVE[(j + 1) % m];
-    const edge = b.clone().sub(a), len = edge.length();
-    const out = new THREE.Vector2(edge.y, -edge.x).normalize();
+  for (const e of GROOVE) {
+    const len = e.a.distanceTo(e.b);
     const base = pos.length / 3;
     for (const r of rings) {
-      const nrm = r.l.clone().multiplyScalar(-out.x).addScaledVector(r.u, out.y);
-      for (const [q, v] of [[r.pts[j], around], [r.pts[(j + 1) % m], around + len]]) {
-        pos.push(q.x, q.y, q.z);
+      for (const [q, nq, v] of [[e.a, e.na, around], [e.b, e.nb, around + len]]) {
+        const p = place(r, q), nrm = turn(r, nq);
+        pos.push(p.x, p.y, p.z);
         nor.push(nrm.x, nrm.y, nrm.z);
         uv.push(r.s / tile, v / tile);
       }
@@ -107,14 +120,15 @@ function routedGeometry(path, tile) {
     }
     around += len;
   }
+  const m = OUTLINE.length;
   // End caps.
-  const tris = THREE.ShapeUtils.triangulateShape(GROOVE, []);
+  const tris = THREE.ShapeUtils.triangulateShape(OUTLINE, []);
   for (const [r, dir] of [[rings[0], -1], [rings[rings.length - 1], 1]]) {
     const base = pos.length / 3;
     for (let j = 0; j < m; j++) {
       pos.push(r.pts[j].x, r.pts[j].y, r.pts[j].z);
       nor.push(r.t.x * dir, r.t.y * dir, r.t.z * dir);
-      uv.push(GROOVE[j].x / tile, GROOVE[j].y / tile);
+      uv.push(OUTLINE[j].x / tile, OUTLINE[j].y / tile);
     }
     for (const [a, b, c] of tris) {
       // Wind each cap triangle to face out of the end.

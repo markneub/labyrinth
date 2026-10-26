@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { R, RIDE, BOUNCE, BALL_BOUNCE, trackAccel, funnelStep, flyStep } from './physics.js';
+import { R, RIDE, BOUNCE, BALL_BOUNCE, trackAccel, rollFactor, spinRadius, funnelStep, flyStep } from './physics.js';
 import { bounceOffWall } from './layout.js';
 
 const H = 1 / 1000;           // physics step, seconds
@@ -153,7 +153,7 @@ export class Machine {
   // ---- Rolling on rails ----
   onTrack(m, h) {
     let path = m.track.path;
-    m.v += trackAccel(path, m.s, m.v) * h;
+    m.v += trackAccel(path, m.s, m.v, rollFactor(m.track)) * h;
     m.s += m.v * h;
     if (m.s < 0) {
       if (m.track.backstop) {
@@ -204,7 +204,7 @@ export class Machine {
     path.at(m.s, m.p);
     const f = path.frame(m.s, tmpFrame);
     m.contact.copy(f.u);
-    m.rollR = RIDE;
+    m.rollR = spinRadius(m.track);
   }
 
   // ---- Flying ----
